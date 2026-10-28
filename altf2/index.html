@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AltF2 | Buscador de Productos</title>
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/leandrocuadro/AltF2/main/LOGO%20NUEVO.png">
+
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+    <!-- Librerías externas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <style>
+        :root {
+            --bg: #f8fcff;
+            --surface: #ffffff;
+            --surface-alt: #f1f5f9;
+
+            --primary: #0f3460;
+            --primary-hover: #1e4a70;
+            --primary-soft: #e8f4fd;
+            --primary-line: #bfdbfe;
+            --primary-ring: rgba(15, 52, 96, 0.18);
+
+            --accent: #48dbfb;
+
+            --excel: #107c41;
+            --excel-hover: #0b5a2f;
+
+            --danger: #dc2626;
+            --danger-hover: #b91c1c;
+            --danger-soft: #fef2f2;
+            --danger-line: #fecaca;
+
+            --ink: #0c1420;
+            --ink-2: #334155;
+            --ink-3: #64748b;
+            --ink-4: #94a3b8;
+
+            --line: #dbeafe;
+            --line-strong: #cbd5e1;
+
+            --thead: #0f172a;
+            --thead-2: #1e293b;
+
+            --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+            --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+            --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.08), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
+            --radius-lg: 14px;
+            --radius-md: 10px;
+            --radius-sm: 7px;
+        }
+
+        ::selection { background: var(--primary); color: #fff; }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html { background: var(--bg); }
+
+        body {
+            font-family: var(--font-sans);
+            color: var(--ink);
+            background:
+                radial-gradient(1200px 500px at 10% -10%, #e8f4fd 0%, transparent 60%),
+                var(--bg);
+            background-attachment: fixed;
+            padding: 32px clamp(12px, 2.5vw, 48px) 56px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .container { width: 100%; max-width: 2000px; margin: 0 auto; }
+
+        /* ===== Encabezado ===== */
+        .header-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 22px;
+        }
+
+        .brand-container {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: var(--surface);
+            padding: 10px 20px 10px 16px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--line);
+            box-shadow: var(--shadow-card);
+        }
+
+        .brand-logo-img {
+            height: 44px;
+            width: auto;
+            max-width: 200px;
+            object-fit: contain;
+            display: block;
+            transition: transform 0.2s ease;
+            user-select: none;
+        }
+
+        .brand-logo-img:hover { transform: scale(1.03); }
+
+        .brand-text-group {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-left: 1px solid var(--line);
+            padding-left: 16px;
+        }
+
+        .brand-subtitle {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--ink-2);
+            letter-spacing: 0.2px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .brand-subtitle::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, var(--primary));
+            box-shadow: 0 0 0 3px var(--primary-ring);
+        }
+
+        /* ===== Badge de estado ===== */
+        .status-badge {
+            font-size: 13px;
+            font-weight: 600;
+            padding: 9px 16px;
+            border-radius: 9999px;
+            background: var(--surface);
+            color: var(--ink-2);
+            border: 1px solid var(--line);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.25s ease;
+        }
+
+        .status-badge.loading { background: var(--primary-soft); color: var(--primary-hover); border-color: var(--primary-line); }
+        .status-badge.success { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+        .status-badge.error   { background: var(--danger-soft); color: var(--danger-hover); border-color: var(--danger-line); }
+
+        /* ===== Tarjeta de búsqueda ===== */
+        .search-card {
+            background: var(--surface);
+            border-radius: var(--radius-lg);
+            padding: 24px 26px;
+            border: 1px solid var(--line);
+            box-shadow: var(--shadow-card);
+            margin-bottom: 22px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .search-card::before {
+            content: '';
+            position: absolute;
+            inset: 0 0 auto 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--accent), var(--primary));
+        }
+
+        .search-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 18px 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+
+        .form-group label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--ink-2);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .form-group input {
+            padding: 10px 13px;
+            border: 1px solid var(--line-strong);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-family: var(--font-sans);
+            color: var(--ink);
+            background: var(--surface);
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+        }
+
+        .form-group input::placeholder { color: var(--ink-4); font-size: 13px; }
+        .form-group input:hover { border-color: var(--ink-4); }
+        .form-group input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-ring); }
+
+        .field-hint {
+            font-size: 11px;
+            color: var(--ink-3);
+            font-style: italic;
+            text-transform: none;
+            letter-spacing: 0;
+            font-weight: 500;
+        }
+
+        /* ===== Barra de acciones ===== */
+        .actions-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding-top: 18px;
+            border-top: 1px solid var(--line);
+        }
+
+        .btn-group-left, .btn-group-right { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        button {
+            padding: 10px 18px;
+            border-radius: var(--radius-sm);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.15s ease;
+            user-select: none;
+            border: 1px solid transparent;
+        }
+
+        button:active { transform: translateY(1px); }
+        button:focus-visible { outline: 3px solid var(--primary-ring); outline-offset: 2px; }
+
+        .btn-search {
+            background: linear-gradient(180deg, #3b82f6, var(--primary));
+            color: #fff;
+            border-color: var(--primary-hover);
+            box-shadow: 0 1px 2px rgba(29, 78, 216, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-search:hover {
+            background: linear-gradient(180deg, var(--primary), var(--primary-hover));
+            box-shadow: 0 4px 12px -2px rgba(37, 99, 235, 0.45);
+        }
+
+        .btn-clear {
+            background: var(--surface);
+            color: var(--ink-2);
+            border-color: var(--line-strong);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .btn-clear:hover {
+            background: var(--surface-alt);
+            color: var(--danger-hover);
+            border-color: var(--danger-line);
+        }
+
+        .btn-excel {
+            background: var(--excel);
+            color: #fff;
+            border-color: var(--excel-hover);
+            box-shadow: 0 1px 2px rgba(11, 90, 47, 0.25);
+        }
+
+        .btn-excel:hover:not(:disabled) {
+            background: var(--excel-hover);
+            box-shadow: 0 4px 12px -2px rgba(16, 124, 65, 0.45);
+        }
+
+        button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        /* ===== Filtros avanzados ===== */
+        .filters-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px 12px;
+            padding-top: 16px;
+            margin-top: 18px;
+            border-top: 1px dashed var(--line-strong);
+        }
+
+        .filter-check-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            cursor: pointer;
+            user-select: none;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--ink-2);
+            padding: 8px 13px;
+            border-radius: 999px;
+            border: 1px solid var(--line-strong);
+            background: var(--surface);
+            transition: all 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .filter-check-label:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: var(--primary-soft);
+        }
+
+        .filter-check-label input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border: 1.5px solid var(--ink-4);
+            border-radius: 4px;
+            background: var(--surface);
+            cursor: pointer;
+            flex-shrink: 0;
+            position: relative;
+            transition: all 0.15s ease;
+        }
+
+        .filter-check-label input[type="checkbox"]:checked {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .filter-check-label input[type="checkbox"]:checked::after {
+            content: '';
+            position: absolute;
+            top: 1px;
+            left: 4px;
+            width: 4px;
+            height: 8px;
+            border: 2px solid #fff;
+            border-top: none;
+            border-left: none;
+            transform: rotate(45deg);
+        }
+
+        .filter-check-label.active {
+            border-color: var(--primary);
+            background: var(--primary-soft);
+            color: var(--primary-hover);
+            box-shadow: 0 0 0 3px var(--primary-ring);
+        }
+
+        .exclusion-panel {
+            display: none;
+            width: 100%;
+            animation: fadeIn 0.18s ease;
+        }
+
+        .exclusion-panel.visible {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .exclusion-panel label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--danger-hover);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            white-space: nowrap;
+        }
+
+        .exclusion-panel input[type="text"] {
+            flex: 1;
+            min-width: 200px;
+            padding: 9px 13px;
+            border: 1px solid var(--danger-line);
+            border-radius: var(--radius-sm);
+            font-size: 13.5px;
+            font-family: var(--font-sans);
+            color: var(--ink);
+            outline: none;
+            background: var(--danger-soft);
+            transition: all 0.15s ease;
+        }
+
+        .exclusion-panel input[type="text"]:focus {
+            border-color: var(--danger);
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
+            background: #fff;
+        }
+
+        .exclusion-hint { font-size: 11px; color: var(--ink-3); font-style: italic; }
+
+        /* ===== Tarjeta de resultados ===== */
+        .results-card {
+            background: var(--surface);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--line);
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+        }
+
+        .results-header {
+            padding: 16px 22px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .counter-text {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--ink);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .page-indicator {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--primary-hover);
+            background: var(--primary-soft);
+            border: 1px solid var(--primary-line);
+            padding: 4px 11px;
+            border-radius: 999px;
+        }
+
+        .table-responsive { width: 100%; overflow-x: auto; }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            text-align: left;
+            font-size: 13.5px;
+        }
+
+        thead th {
+            background: var(--thead);
+            color: #e2e8f0;
+            padding: 12px 16px;
+            font-weight: 600;
+            font-size: 11.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            white-space: nowrap;
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        thead th:last-child { border-right: none; }
+
+        tr.filter-row th {
+            background: var(--thead-2);
+            padding: 8px 10px;
+            font-weight: 500;
+            text-transform: none;
+            letter-spacing: 0;
+        }
+
+        td {
+            padding: 11px 16px;
+            border-bottom: 1px solid var(--line);
+            color: var(--ink-2);
+            vertical-align: middle;
+        }
+
+        tbody tr:last-child td { border-bottom: none; }
+        tr:nth-child(even) td { background: var(--surface-alt); }
+        tr:hover td { background: var(--primary-soft); }
+
+        .col-filter {
+            width: 100%;
+            min-width: 90px;
+            padding: 6px 9px;
+            border: 1px solid #475569;
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            font-family: var(--font-sans);
+            color: var(--ink);
+            background: #fff;
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .col-filter::placeholder { color: var(--ink-4); }
+        .col-filter:focus { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.35); }
+
+        th.sortable { cursor: pointer; user-select: none; }
+        th.sortable:hover { background: var(--thead-2); }
+
+        .sort-ind { font-size: 11px; opacity: 0.55; margin-left: 4px; }
+        .sort-ind.activo { opacity: 1; color: #93c5fd; }
+
+        .code-badge {
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--primary-hover);
+            background: #f1f5f9;
+            padding: 4px 9px;
+            border-radius: 6px;
+            border: 1px solid var(--line-strong);
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .code-badge::after {
+            content: '📋';
+            font-size: 10px;
+            opacity: 0.45;
+            transition: opacity 0.15s ease;
+        }
+
+        .code-badge:hover {
+            background: var(--primary-soft);
+            border-color: var(--primary);
+            color: var(--primary-hover);
+        }
+
+        .code-badge:hover::after { opacity: 1; }
+
+        .code-badge.copied {
+            background: #dcfce7 !important;
+            color: #15803d !important;
+            border-color: #86efac !important;
+        }
+
+        .code-badge.copied::after { content: '✓'; opacity: 1; }
+
+        .brand-tag {
+            display: inline-block;
+            font-weight: 600;
+            color: var(--ink);
+            background: #f1f5f9;
+            padding: 2px 8px;
+            border-radius: 5px;
+            font-size: 12.5px;
+        }
+
+        .alt-code-text {
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            color: var(--ink-3);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 56px 20px;
+            color: var(--ink-3);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        /* ===== Paginación ===== */
+        .pagination-footer {
+            padding: 14px 22px;
+            background: var(--surface);
+            border-top: 1px solid var(--line);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+
+        .pagination-info {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            font-size: 13px;
+            color: var(--ink-3);
+            font-weight: 500;
+            flex-wrap: wrap;
+        }
+
+        .page-size-selector { display: flex; align-items: center; gap: 8px; }
+
+        .page-size-selector label {
+            font-size: 12px;
+            color: var(--ink-3);
+            font-weight: 600;
+        }
+
+        .page-size-selector select {
+            padding: 6px 9px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--line-strong);
+            font-size: 13px;
+            font-family: var(--font-sans);
+            font-weight: 600;
+            background: var(--surface);
+            color: var(--ink);
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.15s ease;
+        }
+
+        .page-size-selector select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-ring); }
+
+        .pagination-nav { display: flex; align-items: center; gap: 4px; user-select: none; flex-wrap: wrap; }
+
+        .page-btn {
+            min-width: 34px;
+            height: 34px;
+            padding: 0 9px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--line-strong);
+            background: var(--surface);
+            color: var(--ink-2);
+            font-family: var(--font-sans);
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .page-btn:hover:not(:disabled):not(.active) {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: var(--primary-soft);
+        }
+
+        .page-btn.active {
+            background: linear-gradient(180deg, #3b82f6, var(--primary));
+            color: #fff;
+            border-color: var(--primary-hover);
+            cursor: default;
+        }
+
+        .page-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            background: var(--surface-alt);
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        .page-ellipsis {
+            min-width: 20px;
+            text-align: center;
+            color: var(--ink-4);
+            font-weight: 600;
+            font-size: 13px;
+            user-select: none;
+        }
+
+        /* ===== Responsivo ===== */
+        @media (max-width: 640px) {
+            body { padding: 16px 10px; }
+            .brand-container { width: 100%; justify-content: center; }
+            .brand-logo-img { height: 36px; }
+            .search-card { padding: 18px 16px; }
+            .actions-bar { flex-direction: column; align-items: stretch; }
+            .btn-group-left, .btn-group-right { width: 100%; }
+            button { flex: 1; }
+            .pagination-footer { flex-direction: column; align-items: center; gap: 12px; padding: 12px 10px; }
+            .pagination-info { flex-direction: column; gap: 8px; text-align: center; }
+            .pagination-nav { justify-content: center; }
+            .page-btn { min-width: 30px; height: 30px; padding: 0 6px; font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <!-- Encabezado con Logo AltF2 -->
+    <div class="header-title">
+        <div class="brand-container">
+            <img src="https://raw.githubusercontent.com/leandrocuadro/AltF2/main/LOGO%20NUEVO.png" alt="AltF2 Logo" class="brand-logo-img">
+            <div class="brand-text-group">
+                <div class="brand-subtitle">Buscador de Productos</div>
+            </div>
+        </div>
+        <div id="status" class="status-badge success">✅ 46.374 productos disponibles</div>
+    </div>
+
+    <div class="search-card">
+        <div class="search-grid">
+            <div class="form-group">
+                <label for="det1">Detalle 1 (Nombre)</label>
+                <input type="text" id="det1" placeholder="Ej: PANTALON">
+            </div>
+            <div class="form-group">
+                <label for="det2">Detalle 2 (Nombre)</label>
+                <input type="text" id="det2" placeholder="Ej: BEIGE">
+            </div>
+            <div class="form-group">
+                <label for="det3">Detalle 3 (Nombre)</label>
+                <input type="text" id="det3" placeholder="Ej: XXL">
+            </div>
+            <div class="form-group">
+                <label for="marca">Marca <span class="field-hint">(varias separadas con ;)</span></label>
+                <input type="text" id="marca" placeholder="Ej: BAHCO; STANLEY; IRIMO" title="Separar múltiples marcas con ;">
+            </div>
+            <div class="form-group">
+                <label for="codigo">Código MyLogic</label>
+                <input type="text" id="codigo" placeholder="Ej: 58963412">
+            </div>
+            <div class="form-group">
+                <label for="codAlt">Código Articulo Proveedor</label>
+                <input type="text" id="codAlt" placeholder="Ej: CONFECAT-01">
+            </div>
+        </div>
+
+        <!-- Filtros de Restricción -->
+        <div class="filters-bar">
+            <label class="filter-check-label" id="labelCod8" for="chkCod8">
+                <input type="checkbox" id="chkCod8" onchange="toggleFiltro('cod8', this)">
+                🔢 Solo código de 8 dígitos
+            </label>
+
+            <label class="filter-check-label" id="labelExcluir" for="chkExcluir">
+                <input type="checkbox" id="chkExcluir" onchange="toggleFiltro('excluir', this)">
+                🚫 Excluir palabra clave
+            </label>
+
+            <div class="exclusion-panel" id="exclusionPanel">
+                <label for="palabrasExcluidas">Palabras a excluir:</label>
+                <input type="text" id="palabrasExcluidas" placeholder="Ej: XXL; XXXL; AZUL" title="Separar múltiples palabras con ;">
+                <span class="exclusion-hint">Separar con ;</span>
+            </div>
+        </div>
+
+        <div class="actions-bar">
+            <div class="btn-group-left">
+                <button class="btn-search" onclick="filtrarProductos()">🔍 Buscar</button>
+                <button class="btn-clear" onclick="limpiar()">🧹 Limpiar filtros</button>
+            </div>
+            <div class="btn-group-right">
+                <button class="btn-excel" id="btnExport" onclick="exportarExcel()" disabled>📊 Exportar a Excel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="results-card">
+        <div class="results-header">
+            <span class="counter-text" id="counter">Sin búsquedas activas</span>
+            <span class="page-indicator" id="headerPageIndicator" style="display: none;"></span>
+        </div>
+
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Código Alt.</th>
+                        <th class="sortable" onclick="ordenarPor('nombre')" title="Clic para ordenar A-Z / Z-A">Nombre <span class="sort-ind" data-sort="nombre">⇅</span></th>
+                        <th>Descripción</th>
+                        <th class="sortable" onclick="ordenarPor('marca')" title="Clic para ordenar A-Z / Z-A">Marca <span class="sort-ind" data-sort="marca">⇅</span></th>
+                        <th>Característica</th>
+                        <th>Cantidad por bulto</th>
+                        <th>Tipo de reposición</th>
+                    </tr>
+                    <tr class="filter-row">
+                        <th><input type="text" class="col-filter" placeholder="Filtrar..." aria-label="Filtrar Código" oninput="setFiltroEncabezado('cod', this.value)"></th>
+                        <th><input type="text" class="col-filter" placeholder="Filtrar..." aria-label="Filtrar Código Alternativo" oninput="setFiltroEncabezado('codAlt', this.value)"></th>
+                        <th><input type="text" class="col-filter" placeholder="Filtrar..." aria-label="Filtrar Nombre" oninput="setFiltroEncabezado('nombre', this.value)"></th>
+                        <th><input type="text" class="col-filter" placeholder="Filtrar..." aria-label="Filtrar Descripción" oninput="setFiltroEncabezado('desc', this.value)"></th>
+                        <th><input type="text" class="col-filter" placeholder="Filtrar..." aria-label="Filtrar Marca" oninput="setFiltroEncabezado('marca', this.value)"></th>
+                        <th><input type="text" class="col-filter" placeholder="Filtrar..." aria-label="Filtrar Característica" oninput="setFiltroEncabezado('caract', this.value)"></th>
+                        <th><input type="text" class="col-filter" placeholder="Filtrar..." aria-label="Filtrar Cantidad por bulto" oninput="setFiltroEncabezado('cantidad', this.value)"></th>
+                        <th><input type="text" class="col-filter" placeholder="Filtrar..." aria-label="Filtrar Tipo de reposición" oninput="setFiltroEncabezado('repos', this.value)"></th>
+                    </tr>
+                </thead>
+                <tbody id="resultadosBody">
+                    <tr>
+                        <td colspan="8" class="empty-state">Ingresa algún criterio y haz clic en "Buscar" o presiona Enter.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination-footer" id="paginationFooter" style="display: none;">
+            <div class="pagination-info">
+                <span id="paginationRange">Mostrando 0 de 0</span>
+                <div class="page-size-selector">
+                    <label for="pageSizeSelect">Por página:</label>
+                    <select id="pageSizeSelect" onchange="cambiarTamanoPagina(this.value)">
+                        <option value="25">25</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                    </select>
+                </div>
+            </div>
+            <div class="pagination-nav" id="paginationNav">
+                <!-- Botones generados dinámicamente -->
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    let productos = [];
+    let busquedaRealizada = false;
+    let resultadosBase = [];     // resultados de la búsqueda principal (cada ítem: { c: campos, n: campos normalizados })
+    let resultadosActuales = []; // vista final tras filtros de encabezado y orden (tabla y Excel)
+    let paginaActual = 1;
+    let tamanoPagina = 50;
+
+    // Filtros por encabezado (se suman a los filtros principales) y orden
+    const COLUMNAS_FILTRABLES = ['cod', 'codAlt', 'nombre', 'desc', 'marca', 'caract', 'cantidad', 'repos'];
+    let filtrosEncabezado = {};
+    COLUMNAS_FILTRABLES.forEach(c => filtrosEncabezado[c] = '');
+    let ordenCampo = null;       // 'nombre' | 'marca' | null
+    let ordenDireccion = 'asc';  // 'asc' | 'desc'
+
+    // Busca un valor en el objeto p probando varios nombres de columna (ignora mayúsculas y acentos)
+    function obtenerValor(obj, nombresPosibles) {
+        if (!obj) return '';
+        const keys = Object.keys(obj);
+
+        for (let posible of nombresPosibles) {
+            const posibleLimpio = posible.toLowerCase().replace(/^﻿/, '').normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+
+            for (let key of keys) {
+                const keyLimpia = key.toLowerCase().replace(/^﻿/, '').normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+                if (keyLimpia === posibleLimpio || keyLimpia.includes(posibleLimpio)) {
+                    const val = obj[key];
+                    if (val !== undefined && val !== null) return String(val).trim();
+                }
+            }
+        }
+        return '';
+    }
+
+    // Convierte notación científica (soporta coma/punto) a texto numérico completo
+    function formatearCodigo(val) {
+        if (val === null || val === undefined) return '';
+        let str = String(val).trim();
+        if (!str) return '';
+
+        let strNormalizado = str.replace(',', '.');
+
+        if (/^[+-]?\d+(\.\d+)?e[+-]?\d+$/i.test(strNormalizado)) {
+            let num = Number(strNormalizado);
+            if (!isNaN(num) && isFinite(num)) {
+                return num.toLocaleString('fullwide', { useGrouping: false });
+            }
+        }
+        return str;
+    }
+
+    // Quita acentos y pasa a mayúsculas (para comparar sin distinguir acentos)
+    function normalizarTexto(str) {
+        return String(str || '')
+            .normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .toUpperCase().trim();
+    }
+
+    // Extrae los 8 campos que se muestran de un producto
+    function extraerCampos(p) {
+        return {
+            cod: formatearCodigo(obtenerValor(p, ['código', 'codigo', 'cod'])),
+            codAlt: formatearCodigo(obtenerValor(p, ['código alternativo', 'codigo alternativo', 'código alt', 'codigo alt', 'cod alt'])),
+            nombre: obtenerValor(p, ['nombre', 'descripcion', 'descripción', 'detalle']),
+            desc: obtenerValor(p, ['descripcion', 'descripción']),
+            marca: obtenerValor(p, ['marca']),
+            caract: obtenerValor(p, ['caracteristica', 'característica']),
+            cantidad: obtenerValor(p, ['cantidad por bulto']),
+            repos: obtenerValor(p, ['tipo de reposicion', 'tipo de reposición', 'reposicion'])
+        };
+    }
+
+    // Crea un ítem de resultado con sus campos y su versión normalizada (para filtrar y ordenar rápido)
+    function crearItem(c) {
+        const n = {};
+        COLUMNAS_FILTRABLES.forEach(k => n[k] = normalizarTexto(c[k]));
+        return { c, n };
+    }
+
+    // -------------------- Lectura de Parquet (hyparquet) --------------------
+    const HYPARQUET_CDN = 'https://cdn.jsdelivr.net/npm/hyparquet@1.31.5/+esm';
+
+    function versionCache() {
+        const manual = new URLSearchParams(window.location.search).get('v');
+        return manual || String(Date.now());
+    }
+
+    function urlConVersion(url, version) {
+        const sep = url.includes('?') ? '&' : '?';
+        return `${url}${sep}v=${encodeURIComponent(version)}`;
+    }
+
+    // AsyncBuffer mínimo sobre HTTP Range, con errores claros.
+    async function crearBufferParquet(url) {
+        const version = versionCache();
+        const urlVersion = urlConVersion(url, version);
+        const head = await fetch(urlVersion, { method: 'HEAD', cache: 'no-store' });
+        if (!head.ok) {
+            const err = new Error(`HTTP ${head.status}`);
+            err.status = head.status;
+            throw err;
+        }
+        const total = Number(head.headers.get('Content-Length') || 0);
+        if (!Number.isFinite(total) || total <= 0) {
+            throw new Error('El servidor no informó el tamaño del archivo.');
+        }
+        return {
+            byteLength: total,
+            async slice(start, end = total) {
+                const desde = Math.max(0, Number(start) || 0);
+                const hasta = Math.min(total, end === undefined || end === null
+                    ? total : Number(end));
+                if (hasta <= desde) return new ArrayBuffer(0);
+                const res = await fetch(urlVersion, {
+                    headers: { Range: `bytes=${desde}-${hasta - 1}` },
+                    cache: 'no-store'
+                });
+                if (!res.ok && res.status !== 206) {
+                    const err = new Error(`HTTP ${res.status}`);
+                    err.status = res.status;
+                    throw err;
+                }
+                const buf = await res.arrayBuffer();
+                if (res.status === 206) return buf;
+                // Algunos servidores ignoran Range y devuelven el archivo completo.
+                return buf.slice(desde, hasta);
+            }
+        };
+    }
+
+    function describirErrorParquet(err) {
+        if (!err) return 'Error desconocido.';
+        if (err.status === 404) return 'No se encontró el archivo Parquet (404). Verificá que esté subido a GitHub.';
+        if (err.status === 403) return 'GitHub rechazó la descarga (403). Verificá que el repositorio sea público.';
+        if (err.name === 'TypeError') return 'No se pudo conectar. Verificá tu conexión a internet.';
+        if (/parquet file invalid|footer|PAR1|invalid parquet/i.test(String(err.message || ''))) {
+            return 'El archivo no es un Parquet válido. Volvé a generarlo con el conversor.';
+        }
+        return err.message || String(err);
+    }
+
+    async function cargarProductosParquet() {
+        const statusDiv = document.getElementById('status');
+        const urls = [
+            '../productos.parquet',
+            './productos.parquet'
+        ];
+
+        let hyparquet;
+        try {
+            hyparquet = await import(HYPARQUET_CDN);
+        } catch (err) {
+            console.error('No se pudo cargar hyparquet:', err);
+            mostrarError('No se pudo cargar el lector de Parquet. Verificá tu conexión a internet.');
+            return;
+        }
+
+        let ultimoError = null;
+        for (const url of urls) {
+            try {
+                const file = await crearBufferParquet(url);
+                const filas = await hyparquet.parquetReadObjects({ file });
+                if (!filas || filas.length === 0) {
+                    ultimoError = new Error('El archivo de productos está vacío.');
+                    continue;
+                }
+                productos = filas.filter(p => Object.values(p).some(
+                    v => v !== null && v !== undefined && String(v).trim().length > 0));
+                if (productos.length === 0) {
+                    ultimoError = new Error('El archivo de productos no tiene filas con datos.');
+                    continue;
+                }
+                statusDiv.innerHTML = `✅ ${productos.length.toLocaleString()} productos disponibles`;
+                statusDiv.className = 'status-badge success';
+                return;
+            } catch (err) {
+                ultimoError = err;
+                console.warn('No se pudo leer el Parquet desde:', url, err);
+            }
+        }
+        mostrarError('No se pudo cargar la base de productos: ' + describirErrorParquet(ultimoError));
+    }
+
+    // Cargar automáticamente productos.parquet desde GitHub o local
+    window.onload = async function() {
+        // Habilitar búsqueda con la tecla Enter en cualquiera de los inputs
+        const inputs = document.querySelectorAll('.search-grid input');
+        inputs.forEach(input => {
+            input.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter') {
+                    filtrarProductos();
+                }
+            });
+        });
+
+        await cargarProductosParquet();
+    };
+
+    function mostrarError(mensaje) {
+        const statusDiv = document.getElementById('status');
+        statusDiv.innerHTML = `❌ ${mensaje}`;
+        statusDiv.className = 'status-badge error';
+    }
+
+    // Toggle visual del label del filtro al activar/desactivar
+    function toggleFiltro(tipo, checkbox) {
+        if (tipo === 'cod8') {
+            document.getElementById('labelCod8').classList.toggle('active', checkbox.checked);
+        } else if (tipo === 'excluir') {
+            document.getElementById('labelExcluir').classList.toggle('active', checkbox.checked);
+            const panel = document.getElementById('exclusionPanel');
+            panel.classList.toggle('visible', checkbox.checked);
+            if (checkbox.checked) {
+                document.getElementById('palabrasExcluidas').focus();
+            } else {
+                document.getElementById('palabrasExcluidas').value = '';
+            }
+        }
+    }
+
+    // Búsqueda principal (campos de arriba). Luego se aplican los filtros y el orden de los encabezados.
+    function filtrarProductos() {
+        if (!productos || productos.length === 0) {
+            alert("La base de datos aún no se ha cargado.");
+            return;
+        }
+
+        const d1 = document.getElementById('det1').value.toUpperCase().trim();
+        const d2 = document.getElementById('det2').value.toUpperCase().trim();
+        const d3 = document.getElementById('det3').value.toUpperCase().trim();
+        const cod = document.getElementById('codigo').value.toUpperCase().trim();
+        const codAlt = document.getElementById('codAlt').value.toUpperCase().trim();
+
+        // Marca: admite varias marcas separadas por ";" (se trae cualquiera de ellas)
+        const marcas = document.getElementById('marca').value
+            .split(';')
+            .map(m => m.toUpperCase().trim())
+            .filter(m => m.length > 0);
+
+        // Restricción 1: Solo código de 8 dígitos numéricos
+        const soloCod8 = document.getElementById('chkCod8').checked;
+
+        // Restricción 2: Palabras excluidas (separadas por ;)
+        const excluirActivo = document.getElementById('chkExcluir').checked;
+        const palabrasExcluidasRaw = document.getElementById('palabrasExcluidas').value;
+        const palabrasExcluidas = excluirActivo
+            ? palabrasExcluidasRaw
+                .split(';')
+                .map(p => p.toUpperCase().trim())
+                .filter(p => p.length > 0)
+            : [];
+
+        resultadosBase = [];
+        for (const p of productos) {
+            const c = extraerCampos(p);
+
+            // Texto donde buscan los Detalles 1/2/3 y la exclusión de palabras:
+            // nombre + descripción + característica + cantidad por bulto + tipo de reposición
+            const textoBusqueda = [c.nombre, c.desc, c.caract, c.cantidad, c.repos].join(' | ').toUpperCase();
+            const pMarca = c.marca.toUpperCase();
+            const pCod = c.cod.toUpperCase();
+            const pCodAlt = c.codAlt.toUpperCase();
+
+            const matchD1 = !d1 || textoBusqueda.includes(d1);
+            const matchD2 = !d2 || textoBusqueda.includes(d2);
+            const matchD3 = !d3 || textoBusqueda.includes(d3);
+            const matchMarca = marcas.length === 0 || marcas.some(m => pMarca.includes(m));
+            const matchCod = !cod || pCod.includes(cod);
+            const matchCodAlt = !codAlt || pCodAlt.includes(codAlt);
+
+            // Restricción 1: el código (formateado, sin espacios) debe tener exactamente 8 dígitos
+            const matchCod8 = !soloCod8 || /^\d{8}$/.test(c.cod.replace(/\s/g, ''));
+
+            // Restricción 2: ninguna palabra excluida debe aparecer en el texto de búsqueda
+            const matchExcluir = palabrasExcluidas.length === 0
+                || !palabrasExcluidas.some(pe => textoBusqueda.includes(pe));
+
+            if (matchD1 && matchD2 && matchD3 && matchMarca && matchCod && matchCodAlt && matchCod8 && matchExcluir) {
+                resultadosBase.push(crearItem(c));
+            }
+        }
+
+        busquedaRealizada = true;
+        paginaActual = 1;
+        aplicarVista();
+    }
+
+    // Aplica los filtros de encabezado y el orden sobre los resultados de la búsqueda principal
+    function aplicarVista() {
+        let vista = resultadosBase.filter(item =>
+            COLUMNAS_FILTRABLES.every(col => !filtrosEncabezado[col] || item.n[col].includes(filtrosEncabezado[col]))
+        );
+
+        if (ordenCampo) {
+            const factor = ordenDireccion === 'asc' ? 1 : -1;
+            vista.sort((a, b) =>
+                factor * a.n[ordenCampo].localeCompare(b.n[ordenCampo], 'es', { numeric: true, sensitivity: 'base' })
+            );
+        }
+
+        resultadosActuales = vista;
+        mostrarResultados(resultadosActuales);
+    }
+
+    // Filtro escrito en el encabezado de una columna (se suma a los filtros principales)
+    function setFiltroEncabezado(col, valor) {
+        filtrosEncabezado[col] = normalizarTexto(valor);
+        if (!busquedaRealizada) return;
+        paginaActual = 1;
+        aplicarVista();
+    }
+
+    // Orden: clic en Nombre o Marca → A-Z, otro clic → Z-A, otro clic → sin orden
+    function ordenarPor(campo) {
+        if (ordenCampo !== campo) {
+            ordenCampo = campo;
+            ordenDireccion = 'asc';
+        } else if (ordenDireccion === 'asc') {
+            ordenDireccion = 'desc';
+        } else {
+            ordenCampo = null;
+            ordenDireccion = 'asc';
+        }
+        actualizarIndicadoresOrden();
+        if (busquedaRealizada) {
+            paginaActual = 1;
+            aplicarVista();
+        }
+    }
+
+    function actualizarIndicadoresOrden() {
+        document.querySelectorAll('.sort-ind').forEach(el => {
+            const activo = ordenCampo === el.dataset.sort;
+            el.textContent = activo ? (ordenDireccion === 'asc' ? '▲' : '▼') : '⇅';
+            el.classList.toggle('activo', activo);
+        });
+    }
+
+    function copiarCodigo(elemento, texto) {
+        if (!texto) return;
+        navigator.clipboard.writeText(texto).then(() => {
+            const originalText = elemento.innerText;
+            elemento.innerText = "¡Copiado!";
+            elemento.classList.add("copied");
+            setTimeout(() => {
+                elemento.innerText = originalText;
+                elemento.classList.remove("copied");
+            }, 1200);
+        });
+    }
+
+    function mostrarResultados(lista) {
+        const tbody = document.getElementById('resultadosBody');
+        const btnExport = document.getElementById('btnExport');
+        const paginationFooter = document.getElementById('paginationFooter');
+        const headerPageIndicator = document.getElementById('headerPageIndicator');
+        tbody.innerHTML = '';
+
+        if (!lista || lista.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No se encontraron productos que coincidan con la búsqueda.</td></tr>`;
+            document.getElementById('counter').innerText = 'Resultados encontrados: 0';
+            btnExport.disabled = true;
+            if (paginationFooter) paginationFooter.style.display = 'none';
+            if (headerPageIndicator) headerPageIndicator.style.display = 'none';
+            return;
+        }
+
+        btnExport.disabled = false;
+        const totalItems = lista.length;
+        const totalPaginas = Math.ceil(totalItems / tamanoPagina);
+
+        // Mantener paginaActual dentro de límites
+        if (paginaActual > totalPaginas) paginaActual = totalPaginas;
+        if (paginaActual < 1) paginaActual = 1;
+
+        const inicio = (paginaActual - 1) * tamanoPagina;
+        const fin = Math.min(inicio + tamanoPagina, totalItems);
+        const paginaItems = lista.slice(inicio, fin);
+
+        document.getElementById('counter').innerText = `Resultados encontrados: ${totalItems.toLocaleString('es-AR')}`;
+
+        if (headerPageIndicator) {
+            headerPageIndicator.innerText = `Pág. ${paginaActual} de ${totalPaginas}`;
+            headerPageIndicator.style.display = 'inline-block';
+        }
+
+        for (const item of paginaItems) {
+            const c = item.c;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><span class="code-badge" onclick="copiarCodigo(this, '${c.cod}')" title="Haz clic para copiar">${c.cod || '-'}</span></td>
+                <td class="alt-code-text">${c.codAlt || '-'}</td>
+                <td>${c.nombre || '-'}</td>
+                <td>${c.desc || '-'}</td>
+                <td><span class="brand-tag">${c.marca || '-'}</span></td>
+                <td>${c.caract || '-'}</td>
+                <td>${c.cantidad || '-'}</td>
+                <td>${c.repos || '-'}</td>
+            `;
+            tbody.appendChild(tr);
+        }
+
+        // Actualizar rango y controles de paginación
+        document.getElementById('paginationRange').innerText =
+            `Mostrando ${(inicio + 1).toLocaleString('es-AR')} - ${fin.toLocaleString('es-AR')} de ${totalItems.toLocaleString('es-AR')}`;
+
+        renderPaginacion(totalPaginas);
+        if (paginationFooter) paginationFooter.style.display = 'flex';
+    }
+
+    function renderPaginacion(totalPaginas) {
+        const nav = document.getElementById('paginationNav');
+        nav.innerHTML = '';
+
+        if (totalPaginas <= 1) {
+            return;
+        }
+
+        // Botón Primera «
+        const btnFirst = document.createElement('button');
+        btnFirst.className = 'page-btn';
+        btnFirst.innerHTML = '«';
+        btnFirst.title = 'Primera página';
+        btnFirst.disabled = paginaActual === 1;
+        btnFirst.onclick = () => irAPagina(1);
+        nav.appendChild(btnFirst);
+
+        // Botón Anterior ‹
+        const btnPrev = document.createElement('button');
+        btnPrev.className = 'page-btn';
+        btnPrev.innerHTML = '‹';
+        btnPrev.title = 'Página anterior';
+        btnPrev.disabled = paginaActual === 1;
+        btnPrev.onclick = () => irAPagina(paginaActual - 1);
+        nav.appendChild(btnPrev);
+
+        // Calcular números de páginas visibles con elipsis
+        const delta = 2; // páginas a cada lado de la actual
+        const paginas = [];
+
+        for (let i = 1; i <= totalPaginas; i++) {
+            if (i === 1 || i === totalPaginas || (i >= paginaActual - delta && i <= paginaActual + delta)) {
+                paginas.push(i);
+            }
+        }
+
+        let ultimoNumero = 0;
+        for (let p of paginas) {
+            if (ultimoNumero && p - ultimoNumero > 1) {
+                const elip = document.createElement('span');
+                elip.className = 'page-ellipsis';
+                elip.innerText = '…';
+                nav.appendChild(elip);
+            }
+
+            const btnPage = document.createElement('button');
+            btnPage.className = 'page-btn' + (p === paginaActual ? ' active' : '');
+            btnPage.innerText = p;
+            if (p !== paginaActual) {
+                btnPage.onclick = () => irAPagina(p);
+            }
+            nav.appendChild(btnPage);
+
+            ultimoNumero = p;
+        }
+
+        // Botón Siguiente ›
+        const btnNext = document.createElement('button');
+        btnNext.className = 'page-btn';
+        btnNext.innerHTML = '›';
+        btnNext.title = 'Página siguiente';
+        btnNext.disabled = paginaActual === totalPaginas;
+        btnNext.onclick = () => irAPagina(paginaActual + 1);
+        nav.appendChild(btnNext);
+
+        // Botón Última »
+        const btnLast = document.createElement('button');
+        btnLast.className = 'page-btn';
+        btnLast.innerHTML = '»';
+        btnLast.title = 'Última página';
+        btnLast.disabled = paginaActual === totalPaginas;
+        btnLast.onclick = () => irAPagina(totalPaginas);
+        nav.appendChild(btnLast);
+    }
+
+    function irAPagina(num) {
+        paginaActual = num;
+        mostrarResultados(resultadosActuales);
+        const resultsEl = document.querySelector('.results-card');
+        if (resultsEl) {
+            resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+
+    function cambiarTamanoPagina(nuevoTamano) {
+        tamanoPagina = parseInt(nuevoTamano, 10);
+        paginaActual = 1;
+        mostrarResultados(resultadosActuales);
+    }
+
+    // Exporta la vista actual (con filtros de encabezado y orden) en el mismo orden de columnas
+    function exportarExcel() {
+        if (!resultadosActuales || resultadosActuales.length === 0) return;
+
+        const datosExcel = resultadosActuales.map(({ c }) => ({
+            'Código': c.cod,
+            'Código Alternativo': c.codAlt,
+            'Nombre': c.nombre,
+            'Descripción': c.desc,
+            'Marca': c.marca,
+            'Característica': c.caract,
+            'Cantidad por bulto': c.cantidad,
+            'Tipo de reposición': c.repos
+        }));
+
+        const worksheet = XLSX.utils.json_to_sheet(datosExcel);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
+
+        const fecha = new Date().toISOString().slice(0,10);
+        XLSX.writeFile(workbook, `Busqueda_Productos_${fecha}.xlsx`);
+    }
+
+    function limpiar() {
+        document.getElementById('det1').value = '';
+        document.getElementById('det2').value = '';
+        document.getElementById('det3').value = '';
+        document.getElementById('marca').value = '';
+        document.getElementById('codigo').value = '';
+        document.getElementById('codAlt').value = '';
+        // Limpiar restricciones
+        const chkCod8 = document.getElementById('chkCod8');
+        const chkExcluir = document.getElementById('chkExcluir');
+        chkCod8.checked = false;
+        chkExcluir.checked = false;
+        document.getElementById('labelCod8').classList.remove('active');
+        document.getElementById('labelExcluir').classList.remove('active');
+        document.getElementById('exclusionPanel').classList.remove('visible');
+        document.getElementById('palabrasExcluidas').value = '';
+        // Limpiar filtros de encabezado y orden
+        COLUMNAS_FILTRABLES.forEach(c => filtrosEncabezado[c] = '');
+        document.querySelectorAll('.col-filter').forEach(input => input.value = '');
+        ordenCampo = null;
+        ordenDireccion = 'asc';
+        actualizarIndicadoresOrden();
+        resultadosBase = [];
+        resultadosActuales = [];
+        busquedaRealizada = false;
+        paginaActual = 1;
+        document.getElementById('pageSizeSelect').value = "50";
+        document.getElementById('btnExport').disabled = true;
+        document.getElementById('counter').innerText = 'Sin búsquedas activas';
+        const paginationFooter = document.getElementById('paginationFooter');
+        if (paginationFooter) paginationFooter.style.display = 'none';
+        const headerPageIndicator = document.getElementById('headerPageIndicator');
+        if (headerPageIndicator) headerPageIndicator.style.display = 'none';
+        document.getElementById('resultadosBody').innerHTML = `<tr><td colspan="8" class="empty-state">Ingresa algún criterio y haz clic en "Buscar" o presiona Enter.</td></tr>`;
+    }
+</script>
+
+</body>
+</html>
