@@ -197,6 +197,10 @@
   .toast[hidden] { display: none; }
   .res-fila { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
   .res-col-detalle { flex: 1 1 280px; min-width: 0; }
+  /* Varios códigos por símbolo: un bloque por código, separado con línea punteada */
+  .res-encabezado { display: block; margin-bottom: 12px; }
+  .res-bloque + .res-bloque { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--border-light); }
+  .res-bloque > div:first-child { flex: 0 0 auto; min-width: 170px; }
   .res-detalle { font-size: 16px; font-weight: 600; margin-top: 4px; line-height: 1.4; }
   .res-marca-principal { font-size: 18px; font-weight: 700; color: var(--text-main); margin-top: 10px; line-height: 1.3; }
   .res-marca-principal .res-label { font-size: 11px; font-weight: 700; color: var(--light); letter-spacing: .5px; margin-right: 10px; vertical-align: middle; }
@@ -359,9 +363,10 @@
   };
 
   const clientes = new Map();   // clave -> nombre
-  const bases = new Map();      // clave -> { simbolos, codigos, repetidos } | null
+  const bases = new Map();      // clave -> { porSimbolo, codigos, duplicados, sinCodigo } | null
   const estado = { std: null, adv: null };   // resultado de validar el cliente
   const seq = { std: 0, adv: 0 };            // descarta respuestas viejas
+  let busquedaStd = 0;                       // descarta búsquedas de símbolo viejas
   let resultadosAdv = [];
 
   const $ = id => document.getElementById(id);
@@ -439,6 +444,19 @@
     return err.message || String(err);
   }
 
+  // El archivo no existe (o el repo no es público): el cliente no tiene base cargada.
+  function esErrorNoEncontrado(err) {
+    return !!err && [403, 404, 410].includes(Number(err.status));
+  }
+
+  // Caída de red o error del servidor: se puede reintentar.
+  function esErrorConexion(err) {
+    if (!err) return false;
+    if (err.name === 'TypeError' || err.name === 'AbortError') return true;
+    const status = Number(err.status);
+    return Number.isFinite(status) && status >= 500;
+  }
+
   function cargarHyparquet() {
     if (!hyparquetPromesa) {
       hyparquetPromesa = import(HYPARQUET_CDN).catch(err => {
@@ -452,16 +470,28 @@
   async function leerParquet(urls) {
     const hyparquet = await cargarHyparquet();
     let ultimoError = null;
-    for (const url of urls) {
+    let conexion = false;
+    let noEncontrado = false;
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
       try {
         const file = await crearBufferParquet(url);
         return await hyparquet.parquetReadObjects({ file });
       } catch (e) {
         ultimoError = e;
+        // El primer origen (GitHub) es el que define el diagnóstico:
+        // un 404 ahí significa "el cliente no tiene base"; una caída de red, "error de conexión".
+        if (i === 0) {
+          conexion = esErrorConexion(e);
+          noEncontrado = esErrorNoEncontrado(e);
+        }
         console.warn('No se pudo leer el Parquet:', url, e);
       }
     }
-    throw ultimoError || new Error('No se pudo leer el archivo Parquet.');
+    const err = ultimoError || new Error('No se pudo leer el archivo Parquet.');
+    err.conexion = conexion;
+    err.noEncontrado = noEncontrado;
+    throw err;
   }
 
   // Busca la clave real de un objeto probando nombres (sin acentos/mayúsculas).
@@ -504,6 +534,8 @@
   }
 
   // Carga la base SIMBOLOS/<nro>.parquet del cliente. Devuelve null si no existe.
+  // Un símbolo puede tener varios códigos (1:N): se acumulan todos.
+  // La clave del índice está normalizada (sin mayúsculas/acentos) para buscar flexible.
   async function cargarBase(clave) {
     if (bases.has(clave)) return bases.get(clave);
     let filas;
@@ -511,10 +543,13 @@
       filas = await leerParquet([URL_BASE(clave), URL_BASE_LOCAL(clave)]);
     } catch (e) {
       console.error(e);
-      // Error HTTP: el archivo no existe o no es accesible. Se cachea null.
-      // Error de red: no se cachea, para reintentar en la próxima consulta.
-      if (e && e.status) bases.set(clave, null);
-      return null;
+      // Archivo inexistente o sin acceso: el cliente no tiene base. Se cachea null.
+      // Error de red o archivo inválido: no se cachea, para reintentar en la próxima consulta.
+      if (e && (e.noEncontrado || esErrorNoEncontrado(e))) {
+        bases.set(clave, null);
+        return null;
+      }
+      throw e;
     }
 
     const primera = filas[0] || {};
@@ -525,24 +560,39 @@
     const claveSimbolo = hayEncabezado ? kS : (keys[0] || null);
     const claveCodigo = hayEncabezado ? kC : (keys[1] || null);
 
-    const simbolos = new Map();   // símbolo -> código
-    const codigos = new Map();    // código -> Set de símbolos (para advertir)
-    const repetidos = new Set();  // símbolos repetidos con códigos distintos
+    const porSimbolo = new Map();  // clave normalizada -> { simbolo, codigos: [] }
+    const codigos = new Map();     // código -> Set de símbolos (para advertir)
+    const duplicados = new Set();  // "clave||codigo" repetidos exactos en la base
+    const sinCodigo = new Set();   // claves de símbolos que aparecen sin código
+    let sinSimbolo = 0;            // filas con código pero sin símbolo (no deberían existir)
+
     for (const f of filas) {
       const s = String((claveSimbolo ? f[claveSimbolo] : '') ?? '').trim();
       const c = String((claveCodigo ? f[claveCodigo] : '') ?? '').trim();
-      if (!s) continue;
-      if (simbolos.has(s)) {
-        if (simbolos.get(s) !== c) repetidos.add(s);   // se respeta el primero
+      if (!s) {
+        if (c) sinSimbolo++;
         continue;
       }
-      simbolos.set(s, c);
-      if (c) {
-        if (!codigos.has(c)) codigos.set(c, new Set());
-        codigos.get(c).add(s);
+      const ns = normalizar(s);
+      if (!ns) continue;
+      let entrada = porSimbolo.get(ns);
+      if (!entrada) {
+        entrada = { simbolo: s, codigos: [] };
+        porSimbolo.set(ns, entrada);
       }
+      if (!c) {
+        sinCodigo.add(ns);
+        continue;
+      }
+      if (entrada.codigos.includes(c)) {
+        duplicados.add(`${ns}||${c}`);
+        continue;
+      }
+      entrada.codigos.push(c);
+      if (!codigos.has(c)) codigos.set(c, new Set());
+      codigos.get(c).add(entrada.simbolo);
     }
-    const base = { simbolos, codigos, repetidos };
+    const base = { porSimbolo, codigos, duplicados, sinCodigo, sinSimbolo };
     bases.set(clave, base);
     return base;
   }
@@ -597,21 +647,38 @@
     if (!clave) return { estado: 'vacio' };
     if (!clientes.size) return { estado: 'sin_catalogo' };
     if (!clientes.has(clave)) return { estado: 'inexistente' };
-    const base = await cargarBase(clave);
-    if (!base) return { estado: 'sin_base' };
-    return { estado: 'ok', clave, nombre: clientes.get(clave), base };
+    const nombre = clientes.get(clave);
+    let base;
+    try {
+      base = await cargarBase(clave);
+    } catch (e) {
+      console.error(e);
+      return {
+        estado: 'error_conexion',
+        clave,
+        nombre,
+        mensaje: e && e.conexion === false
+          ? 'No se pudo leer la base de símbolos: ' + describirErrorParquet(e)
+          : 'Error de conexión al descargar la base de este cliente. Verificá tu internet e intentá de nuevo.'
+      };
+    }
+    if (!base) return { estado: 'sin_base', clave, nombre };
+    return { estado: 'ok', clave, nombre, base };
   }
 
   function habilitarControles(sec) {
-    const ok = !!estado[sec];
+    const r = estado[sec];
+    // Con error de conexión se habilitan los controles para poder reintentar.
+    const puedeBuscar = !!r && (r.estado === 'ok' || r.estado === 'error_conexion');
+    const tieneBase = !!r && r.estado === 'ok';
     if (sec === 'std') {
-      $('simStd').disabled = !ok;
-      $('btnStd').disabled = !ok;
-      if (!ok) $('simStd').value = '';
+      $('simStd').disabled = !puedeBuscar;
+      $('btnStd').disabled = !puedeBuscar;
+      if (!puedeBuscar) $('simStd').value = '';
     } else {
-      $('archivoAdv').disabled = !ok;
-      $('lblArchivo').classList.toggle('deshabilitado', !ok);
-      $('ayudaArchivo').textContent = ok
+      $('archivoAdv').disabled = !tieneBase;
+      $('lblArchivo').classList.toggle('deshabilitado', !tieneBase);
+      $('ayudaArchivo').textContent = tieneBase
         ? 'Subí un Excel o CSV con una sola columna de símbolos. La primera fila es el encabezado.'
         : 'Ingresá un cliente válido para habilitar la carga.';
     }
@@ -619,6 +686,7 @@
 
   function limpiarResultado(sec) {
     if (sec === 'std') {
+      busquedaStd++;                    // descarta una búsqueda en curso
       $('resStd').hidden = true;
       $('resStd').innerHTML = '';
     } else {
@@ -653,9 +721,9 @@
     const r = await evaluarCliente(clave);
     if (id !== seq[sec]) return;                 // llegó una respuesta vieja
 
-    estado[sec] = r.estado === 'ok' ? r : null;
+    estado[sec] = r;
     if (r.estado === 'ok') S.busca.value = `${r.clave}-${r.nombre}`;
-    const msg = MENSAJES[r.estado] || '';
+    const msg = r.mensaje || MENSAJES[r.estado] || '';
     S.aviso.className = 'aviso error';
     S.aviso.textContent = msg;
     S.aviso.hidden = !msg;
@@ -777,66 +845,122 @@
   });
 
   // ---------- Búsqueda estándar ----------
-  async function buscarStd() {
-    const e = estado.std;
-    const sim = $('simStd').value.trim();
-    if (!e || !sim) return;
-    const out = $('resStd');
-    const cod = e.base.simbolos.get(sim);
+  // Un símbolo puede tener varios códigos: se listan todos.
+  function ordenarCodigos(lista) {
+    return [...lista].sort((a, b) => a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' }));
+  }
 
-    if (cod === undefined) {
-      out.innerHTML = '<div class="res-error">Símbolo no encontrado en la base de este cliente.</div>';
-      out.hidden = false;
+  // Detalle de un código (mismo formato visual que la app original)
+  function detalleCodigo(producto) {
+    if (!producto.ok) {
+      return {
+        html: '<div class="res-sin">No se pudo cargar la base de productos por un error de conexión. Verificá tu internet.</div>',
+        aviso: ''
+      };
+    }
+    if (!producto.nombre) {
+      return { html: '<div class="res-sin">Este código no figura en la base de productos.</div>', aviso: '' };
+    }
+    // Orden por relevancia: detalle (grande), marca (destacada) y datos menores (chicos)
+    const dato = (etiqueta, valor) => valor
+      ? `<span class="res-dato"><span class="res-label">${etiqueta}</span> ${esc(valor)}</span>`
+      : '';
+    const menores = [
+      dato('CÓD. ALT.', producto.alt),
+      dato('CARACTERÍSTICA', producto.caracteristica),
+      dato('CANT. POR BULTO', producto.bulto),
+      dato('TIPO DE REPOSICIÓN', producto.reposicion)
+    ].join('');
+    return {
+      html: `<div class="res-detalle">${esc(producto.nombre)}</div>` +
+        (producto.marca ? `<div class="res-marca-principal"><span class="res-label">MARCA</span>${esc(producto.marca)}</div>` : '') +
+        (menores ? `<div class="res-menores">${menores}</div>` : ''),
+      aviso: producto.repetido
+        ? 'aparece en la base de productos con nombres distintos. Se muestra el primero.'
+        : ''
+    };
+  }
+
+  async function buscarStd() {
+    const out = $('resStd');
+    const sim = $('simStd').value.trim();
+    const previo = estado.std;
+    if (!previo || !sim) return;
+    if (previo.estado !== 'ok' && previo.estado !== 'error_conexion') return;
+
+    const mid = ++busquedaStd;
+    // Limpia el resultado anterior y muestra el estado de búsqueda
+    out.hidden = false;
+    out.innerHTML = '<div class="res-sin">Buscando...</div>';
+
+    let e = previo;
+    if (e.estado === 'error_conexion') {
+      // Reintenta la descarga de la base antes de buscar
+      const r = await evaluarCliente(e.clave);
+      if (mid !== busquedaStd) return;
+      estado.std = r;
+      habilitarControles('std');
+      const msg = r.mensaje || MENSAJES[r.estado] || '';
+      SEC.std.aviso.className = 'aviso error';
+      SEC.std.aviso.textContent = msg;
+      SEC.std.aviso.hidden = !msg;
+      if (r.estado !== 'ok') {
+        out.innerHTML = `<div class="res-error">${esc(msg || 'No se pudo cargar la base de este cliente.')}</div>`;
+        return;
+      }
+      e = r;
+    }
+    if (!e || e.estado !== 'ok') return;
+
+    const claveSim = normalizar(sim);
+    const entrada = e.base.porSimbolo.get(claveSim);
+    if (!entrada) {
+      out.innerHTML = `<div class="res-error">No se encontraron códigos para el símbolo «${esc(sim)}».</div>`;
       return;
     }
-    if (!cod) {
+
+    const lista = ordenarCodigos(entrada.codigos);
+    if (!lista.length) {
       out.innerHTML = '<div class="res-error">El símbolo existe en la base, pero no tiene código asignado.</div>';
-      out.hidden = false;
       return;
     }
+
+    // Todos los códigos en paralelo; después se valida que la consulta siga vigente
+    const productos = await Promise.all(lista.map(cod => buscarProducto(cod)));
+    if (mid !== busquedaStd || estado.std !== e) return;
+    if (normalizar($('simStd').value) !== claveSim) return;
 
     const avisos = [];
-    if (e.base.repetidos.has(sim)) {
-      avisos.push('Este símbolo aparece repetido en la base con códigos distintos. Se muestra el primero. Revisá la base.');
-    }
-    const otros = [...(e.base.codigos.get(cod) || [])].filter(s => s !== sim);
-    if (otros.length) {
-      avisos.push(`El código ${cod} también está asociado a los símbolos: ${otros.join(', ')}. Revisá la base antes de usarlo.`);
-    }
-
-    const producto = await buscarProducto(cod);
-    if (estado.std !== e || $('simStd').value.trim() !== sim) return;   // cambió la consulta mientras tanto
-
-    let detalle;
-    if (!producto.ok) {
-      detalle = '<div class="res-sin">No se pudo cargar la base de productos. Verificá tu conexión.</div>';
-    } else if (!producto.nombre) {
-      detalle = '<div class="res-sin">Este código no figura en la base de productos.</div>';
-    } else {
-      // Orden por relevancia: detalle (grande), marca (destacada) y datos menores (chicos)
-      const dato = (etiqueta, valor) => valor
-        ? `<span class="res-dato"><span class="res-label">${etiqueta}</span> ${esc(valor)}</span>`
-        : '';
-      const menores = [
-        dato('CÓD. ALT.', producto.alt),
-        dato('CARACTERÍSTICA', producto.caracteristica),
-        dato('CANT. POR BULTO', producto.bulto),
-        dato('TIPO DE REPOSICIÓN', producto.reposicion)
-      ].join('');
-      detalle = `<div class="res-detalle">${esc(producto.nombre)}</div>` +
-        (producto.marca ? `<div class="res-marca-principal"><span class="res-label">MARCA</span>${esc(producto.marca)}</div>` : '') +
-        (menores ? `<div class="res-menores">${menores}</div>` : '');
-      if (producto.repetido) {
-        avisos.push(`El código ${cod} aparece en la base de productos con nombres distintos. Se muestra el primero.`);
+    for (const cod of lista) {
+      if (e.base.duplicados.has(`${claveSim}||${cod}`)) {
+        avisos.push(`El símbolo aparece repetido en la base con el mismo código ${cod}. Se ignoraron las filas duplicadas.`);
+      }
+      const otros = [...(e.base.codigos.get(cod) || [])].filter(s => s !== entrada.simbolo);
+      if (otros.length) {
+        avisos.push(`El código ${cod} también está asociado a los símbolos: ${otros.join(', ')}. Revisá la base antes de usarlo.`);
       }
     }
+    if (e.base.sinCodigo.has(claveSim)) {
+      avisos.push('El símbolo también aparece en la base sin código asignado. Se muestran solo los códigos cargados.');
+    }
 
-    out.innerHTML =
-      '<div class="res-fila">' +
-        '<div><div class="res-label">CÓDIGO · clic para copiar</div>' +
+    const bloques = lista.map((cod, i) => {
+      const detalle = detalleCodigo(productos[i]);
+      if (detalle.aviso) avisos.push(`El código ${cod} ${detalle.aviso}`);
+      return '<div class="res-fila res-bloque">' +
+        '<div><div class="res-label">' +
+          `CÓDIGO${lista.length > 1 ? ` ${i + 1} de ${lista.length}` : ''} · clic para copiar` +
+        '</div>' +
         `<span class="code-badge grande copiable" data-copiar="${esc(cod)}" title="Haz clic para copiar">${esc(cod)}</span></div>` +
-        `<div class="res-col-detalle"><div class="res-label">DETALLE</div>${detalle}</div>` +
-      '</div>' +
+        `<div class="res-col-detalle"><div class="res-label">DETALLE</div>${detalle.html}</div>` +
+      '</div>';
+    }).join('');
+
+    const encabezado = lista.length > 1
+      ? `<div class="res-label res-encabezado">CÓDIGOS · ${lista.length} encontrados para «${esc(entrada.simbolo)}»</div>`
+      : '';
+
+    out.innerHTML = encabezado + bloques +
       avisos.map(a => `<div class="advertencia">⚠️ ${esc(a)}</div>`).join('');
     out.hidden = false;
   }
@@ -877,7 +1001,12 @@
   // Limpia la tabla, el resumen y las advertencias; el cliente y el archivo cargado se reinician
   $('btnLimpiarAdv').addEventListener('click', () => limpiarResultado('adv'));
   $('simStd').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); buscarStd(); } });
-  $('simStd').addEventListener('input', () => { $('resStd').hidden = true; });
+  // Al cambiar el símbolo se limpia el resultado anterior
+  $('simStd').addEventListener('input', () => {
+    busquedaStd++;
+    $('resStd').hidden = true;
+    $('resStd').innerHTML = '';
+  });
 
   // ---------- Búsqueda avanzada ----------
   function renderAdv() {
@@ -912,26 +1041,28 @@
 
   function mostrarResumenAdv(extra = []) {
     const e = estado.adv;
-    const total = resultadosAdv.length;
+    const totalFilas = resultadosAdv.length;
+    const totalSimbolos = new Set(resultadosAdv.map(r => r.item)).size;
     const encontrados = resultadosAdv.filter(r => r.codigo !== '0').length;
     const resumen = $('resumenAdv');
     resumen.innerHTML =
-      `<span>Total: ${total}</span><span>Encontrados: ${encontrados}</span><span>No encontrados (código 0): ${total - encontrados}</span>`;
+      `<span>Símbolos: ${totalSimbolos}</span><span>Filas (una por código): ${totalFilas}</span><span>Encontrados: ${encontrados}</span><span>No encontrados (código 0): ${totalFilas - encontrados}</span>`;
     resumen.hidden = false;
 
     // Advertencias (sin modificar datos)
     const avisos = [];
     const codigosCompartidos = new Set();
-    const simbolosRepetidos = new Set();
+    const simbolosDuplicados = new Set();
     for (const r of resultadosAdv) {
-      if (r.codigo !== '0' && (e.base.codigos.get(r.codigo)?.size || 0) > 1) codigosCompartidos.add(r.codigo);
-      if (e.base.repetidos.has(r.simbolo)) simbolosRepetidos.add(r.simbolo);
+      if (r.codigo === '0') continue;
+      if ((e.base.codigos.get(r.codigo)?.size || 0) > 1) codigosCompartidos.add(r.codigo);
+      if (e.base.duplicados.has(`${normalizar(r.simbolo)}||${r.codigo}`)) simbolosDuplicados.add(r.simbolo);
     }
     if (codigosCompartidos.size) {
       avisos.push(`${codigosCompartidos.size} código(s) están asociados a más de un símbolo en la base: ${[...codigosCompartidos].join(', ')}. Se muestran tal como están en la base.`);
     }
-    if (simbolosRepetidos.size) {
-      avisos.push(`${simbolosRepetidos.size} símbolo(s) aparecen repetidos en la base con códigos distintos: ${[...simbolosRepetidos].join(', ')}. Se muestra el primero.`);
+    if (simbolosDuplicados.size) {
+      avisos.push(`${simbolosDuplicados.size} símbolo(s) aparecen repetidos en la base con el mismo código: ${[...simbolosDuplicados].join(', ')}. Se ignoraron las filas duplicadas.`);
     }
     renderAvisos($('advertenciasAdv'), [...avisos, ...extra]);
   }
@@ -939,7 +1070,7 @@
   $('archivoAdv').addEventListener('change', async ev => {
     const file = ev.target.files[0];
     const e = estado.adv;
-    if (!file || !e) return;
+    if (!file || !e || e.estado !== 'ok') return;
     try {
       if (typeof XLSX === 'undefined') throw new Error('No se pudo cargar la librería de Excel. Revisá tu conexión.');
       const libro = XLSX.read(await file.arrayBuffer(), { type: 'array' });
@@ -954,8 +1085,17 @@
       const res = [];
       for (let r = 1; r <= fin; r++) {
         const simbolo = String((filas[r] || [])[0] ?? '').trim();
-        const codigo = simbolo ? (e.base.simbolos.get(simbolo) || '0') : '0';
-        res.push({ item: r, simbolo, codigo, detalle: '', marca: '', alt: '', caracteristica: '', bulto: '', reposicion: '' });
+        const entrada = simbolo ? e.base.porSimbolo.get(normalizar(simbolo)) : null;
+        // Un símbolo puede tener varios códigos: una fila por código
+        const lista = entrada && entrada.codigos.length ? ordenarCodigos(entrada.codigos) : ['0'];
+        for (const codigo of lista) {
+          res.push({
+            item: r,
+            simbolo: entrada ? entrada.simbolo : simbolo,
+            codigo,
+            detalle: '', marca: '', alt: '', caracteristica: '', bulto: '', reposicion: ''
+          });
+        }
       }
 
       // Detalle del artículo desde productos.csv (columna Nombre)
@@ -1002,7 +1142,7 @@
   });
 
   $('btnExport').addEventListener('click', () => {
-    if (!resultadosAdv.length || !estado.adv) return;
+    if (!resultadosAdv.length || !estado.adv || estado.adv.estado !== 'ok') return;
     const datos = resultadosAdv.map(r => ({
       'NRO ITEM': r.item, 'SIMBOLO': r.simbolo, 'CODIGO': r.codigo, 'DETALLE': r.detalle, 'MARCA': r.marca,
       'CÓD. ALT.': r.alt, 'CARACTERÍSTICA': r.caracteristica, 'CANT. POR BULTO': r.bulto, 'TIPO DE REPOSICIÓN': r.reposicion
