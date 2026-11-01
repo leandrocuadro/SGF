@@ -217,6 +217,17 @@
   }
 
   .resumen { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 10px; display: flex; gap: 18px; flex-wrap: wrap; }
+  /* Filtros de texto debajo del encabezado de cada columna */
+  thead tr.fila-filtros th { top: var(--alto-thead, 37px); padding: 7px 10px; z-index: 2; border-top: 1px solid rgba(255,255,255,.09); }
+  thead tr:first-child th { z-index: 3; }
+  .filtro-celda {
+    width: 100%; min-width: 0; padding: 5px 8px; border-radius: 4px;
+    border: 1px solid #cbd5e1; background: #fff; color: var(--ink);
+    font: 500 12px var(--sans); outline: none;
+  }
+  .filtro-celda::placeholder { color: var(--light); opacity: 1; font-style: normal; }
+  .filtro-celda:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(15,52,96,.18); }
+  .filtro-celda:disabled { opacity: .5; cursor: not-allowed; }
   .tabla-wrap { border: 1px solid var(--border); border-radius: 6px; overflow: auto; max-height: 520px; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th {
@@ -238,7 +249,7 @@
 <header class="topbar">
   <div class="marca">
     <div class="logo-caja">
-      <img src="LOGO AltF2.png" alt="AltF2"
+      <img src="https://raw.githubusercontent.com/leandrocuadro/SGF/main/symb0t/LOGO%20AltF2.png" alt="AltF2"
            onerror="this.outerHTML='<span class=&quot;logo-texto&quot;>AltF2</span>'">
     </div>
     <div class="marca-texto">
@@ -314,11 +325,12 @@
     <div class="resumen" id="resumenAdv" hidden></div>
     <div id="advertenciasAdv"></div>
     <div class="fila fila-fin">
+      <button class="btn btn-limpiar" id="btnLimpiarFiltros" type="button" disabled>✕ Limpiar filtros</button>
       <button class="btn btn-limpiar" id="btnLimpiarAdv" type="button">🧹 Limpiar resultado</button>
       <button class="btn btn-excel" id="btnExport" disabled>📊 Exportar a Excel</button>
     </div>
     <div class="tabla-wrap">
-      <table>
+      <table id="tablaAdv">
         <colgroup>
           <col style="width: 90px">
           <col style="width: 170px">
@@ -332,6 +344,17 @@
         </colgroup>
         <thead>
           <tr><th>NRO ITEM</th><th>SIMBOLO</th><th>CODIGO</th><th>DETALLE</th><th>MARCA</th><th>CÓD. ALT.</th><th>CARACTERÍSTICA</th><th>CANT. POR BULTO</th><th>TIPO DE REPOSICIÓN</th></tr>
+          <tr class="fila-filtros" id="filaFiltros" hidden>
+            <th><input class="filtro-celda" id="fItem" data-filtro="item" inputmode="numeric" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por nro item"></th>
+            <th><input class="filtro-celda" id="fSimbolo" data-filtro="simbolo" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por símbolo"></th>
+            <th><input class="filtro-celda" id="fCodigo" data-filtro="codigo" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por código"></th>
+            <th><input class="filtro-celda" id="fDetalle" data-filtro="detalle" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por detalle"></th>
+            <th><input class="filtro-celda" id="fMarca" data-filtro="marca" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por marca"></th>
+            <th><input class="filtro-celda" id="fAlt" data-filtro="alt" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por código alternativo"></th>
+            <th><input class="filtro-celda" id="fCaracteristica" data-filtro="caracteristica" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por característica"></th>
+            <th><input class="filtro-celda" id="fBulto" data-filtro="bulto" inputmode="numeric" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por cantidad por bulto"></th>
+            <th><input class="filtro-celda" id="fReposicion" data-filtro="reposicion" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por tipo de reposición"></th>
+          </tr>
         </thead>
         <tbody id="tbodyAdv">
           <tr><td colspan="9" class="vacio">Sin resultados.</td></tr>
@@ -368,6 +391,8 @@
   const seq = { std: 0, adv: 0 };            // descarta respuestas viejas
   let busquedaStd = 0;                       // descarta búsquedas de símbolo viejas
   let resultadosAdv = [];
+  let avisosCargaAdv = [];                   // advertencias de la última carga (se mantienen al filtrar)
+  let filtrosTimer = null;
 
   const $ = id => document.getElementById(id);
   const SEC = {
@@ -691,6 +716,9 @@
       $('resStd').innerHTML = '';
     } else {
       resultadosAdv = [];
+      avisosCargaAdv = [];
+      resetFiltrosAdv();
+      $('filaFiltros').hidden = true;
       renderAdv();
       $('resumenAdv').hidden = true;
       $('advertenciasAdv').innerHTML = '';
@@ -1009,13 +1037,73 @@
   });
 
   // ---------- Búsqueda avanzada ----------
-  function renderAdv() {
+  // Filtros de texto por columna. Se combinan con AND entre columnas.
+  const CAMPOS_FILTRO = {
+    item: { id: 'fItem', valor: r => r.item },
+    simbolo: { id: 'fSimbolo', valor: r => r.simbolo },
+    codigo: { id: 'fCodigo', valor: r => r.codigo },
+    detalle: { id: 'fDetalle', valor: r => r.detalle },
+    marca: { id: 'fMarca', valor: r => r.marca },
+    alt: { id: 'fAlt', valor: r => r.alt },
+    caracteristica: { id: 'fCaracteristica', valor: r => r.caracteristica },
+    bulto: { id: 'fBulto', valor: r => r.bulto },
+    reposicion: { id: 'fReposicion', valor: r => r.reposicion }
+  };
+  const filtrosAdv = { item: '', simbolo: '', codigo: '', detalle: '', marca: '', alt: '', caracteristica: '', bulto: '', reposicion: '' };
+
+  // Contiene, sin mayúsculas/acentos; varias palabras = todas presentes (AND)
+  function coincideFiltro(valor, filtro) {
+    const tokens = normalizar(filtro).split(/\s+/).filter(Boolean);
+    if (!tokens.length) return true;
+    const texto = normalizar(valor);
+    return tokens.every(t => texto.includes(t));
+  }
+
+  function filtrosActivos() {
+    return Object.keys(filtrosAdv).filter(k => normalizar(filtrosAdv[k])).length;
+  }
+
+  function filasVisiblesAdv() {
+    const activos = Object.keys(CAMPOS_FILTRO).filter(k => normalizar(filtrosAdv[k]));
+    if (!activos.length) return resultadosAdv;
+    return resultadosAdv.filter(r => activos.every(k =>
+      coincideFiltro(CAMPOS_FILTRO[k].valor(r), filtrosAdv[k])
+    ));
+  }
+
+  function resetFiltrosAdv() {
+    for (const k of Object.keys(CAMPOS_FILTRO)) {
+      filtrosAdv[k] = '';
+      $(CAMPOS_FILTRO[k].id).value = '';
+    }
+  }
+
+  function actualizarEstadoFiltros(filas = filasVisiblesAdv()) {
+    const activos = filtrosActivos();
+    const boton = $('btnLimpiarFiltros');
+    boton.disabled = activos === 0;
+    boton.title = activos
+      ? `${activos} filtro(s) activo(s) · mostrando ${filas.length} de ${resultadosAdv.length} filas`
+      : '';
+    $('btnExport').disabled = filas.length === 0;
+  }
+
+  function aplicarFiltrosAdv() {
+    clearTimeout(filtrosTimer);
+    filtrosTimer = null;
+    const filas = filasVisiblesAdv();
+    renderAdv(filas);
+    actualizarEstadoFiltros(filas);
+    if (resultadosAdv.length) mostrarResumenAdv(avisosCargaAdv, filas);
+  }
+
+  function renderAdv(filas = filasVisiblesAdv()) {
     const tbody = $('tbodyAdv');
-    if (!resultadosAdv.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="vacio">Sin resultados.</td></tr>';
+    if (!filas.length) {
+      tbody.innerHTML = `<tr><td colspan="9" class="vacio">${resultadosAdv.length ? 'Sin resultados para los filtros aplicados.' : 'Sin resultados.'}</td></tr>`;
       return;
     }
-    tbody.innerHTML = resultadosAdv.map(r =>
+    tbody.innerHTML = filas.map(r =>
       `<tr>
         <td class="mono">${r.item}</td>
         <td class="mono">${esc(r.simbolo)}</td>
@@ -1039,21 +1127,26 @@
       '</details>';
   }
 
-  function mostrarResumenAdv(extra = []) {
+  function mostrarResumenAdv(extra = [], filas = filasVisiblesAdv()) {
     const e = estado.adv;
+    if (!e || e.estado !== 'ok') return;
     const totalFilas = resultadosAdv.length;
-    const totalSimbolos = new Set(resultadosAdv.map(r => r.item)).size;
-    const encontrados = resultadosAdv.filter(r => r.codigo !== '0').length;
+    const visibles = filas.length;
+    const totalSimbolos = new Set(filas.map(r => r.item)).size;
+    const encontrados = filas.filter(r => r.codigo !== '0').length;
     const resumen = $('resumenAdv');
     resumen.innerHTML =
-      `<span>Símbolos: ${totalSimbolos}</span><span>Filas (una por código): ${totalFilas}</span><span>Encontrados: ${encontrados}</span><span>No encontrados (código 0): ${totalFilas - encontrados}</span>`;
+      `<span>Símbolos: ${totalSimbolos}</span>` +
+      `<span>Filas: ${visibles}${visibles !== totalFilas ? ` de ${totalFilas}` : ''}</span>` +
+      `<span>Encontrados: ${encontrados}</span>` +
+      `<span>No encontrados (código 0): ${visibles - encontrados}</span>`;
     resumen.hidden = false;
 
     // Advertencias (sin modificar datos)
     const avisos = [];
     const codigosCompartidos = new Set();
     const simbolosDuplicados = new Set();
-    for (const r of resultadosAdv) {
+    for (const r of filas) {
       if (r.codigo === '0') continue;
       if ((e.base.codigos.get(r.codigo)?.size || 0) > 1) codigosCompartidos.add(r.codigo);
       if (e.base.duplicados.has(`${normalizar(r.simbolo)}||${r.codigo}`)) simbolosDuplicados.add(r.simbolo);
@@ -1065,6 +1158,41 @@
       avisos.push(`${simbolosDuplicados.size} símbolo(s) aparecen repetidos en la base con el mismo código: ${[...simbolosDuplicados].join(', ')}. Se ignoraron las filas duplicadas.`);
     }
     renderAvisos($('advertenciasAdv'), [...avisos, ...extra]);
+  }
+
+  $('filaFiltros').addEventListener('input', ev => {
+    const campo = ev.target.closest('input[data-filtro]');
+    if (!campo) return;
+    filtrosAdv[campo.dataset.filtro] = campo.value;
+    clearTimeout(filtrosTimer);
+    filtrosTimer = setTimeout(aplicarFiltrosAdv, 120);
+  });
+  $('filaFiltros').addEventListener('keydown', ev => {
+    if (ev.key !== 'Escape') return;
+    const campo = ev.target.closest('input[data-filtro]');
+    if (!campo || !campo.value) return;
+    ev.preventDefault();
+    campo.value = '';
+    filtrosAdv[campo.dataset.filtro] = '';
+    aplicarFiltrosAdv();
+  });
+  $('btnLimpiarFiltros').addEventListener('click', () => {
+    resetFiltrosAdv();
+    aplicarFiltrosAdv();
+  });
+
+  // La fila de filtros queda pegada justo debajo del encabezado sticky
+  function ajustarAltoThead() {
+    const th = document.querySelector('#tablaAdv thead tr:first-child th');
+    if (!th) return;
+    document.documentElement.style.setProperty('--alto-thead', `${Math.round(th.getBoundingClientRect().height)}px`);
+  }
+  ajustarAltoThead();
+  window.addEventListener('resize', ajustarAltoThead);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(ajustarAltoThead);
+  if (window.ResizeObserver) {
+    const th = document.querySelector('#tablaAdv thead tr:first-child th');
+    if (th) new ResizeObserver(ajustarAltoThead).observe(th);
   }
 
   $('archivoAdv').addEventListener('change', async ev => {
@@ -1124,11 +1252,17 @@
       }
 
       resultadosAdv = res;
+      avisosCargaAdv = avisosDetalle;
+      resetFiltrosAdv();
+      $('filaFiltros').hidden = false;
       renderAdv();
-      mostrarResumenAdv(avisosDetalle);
-      $('btnExport').disabled = false;
+      mostrarResumenAdv(avisosCargaAdv);
+      actualizarEstadoFiltros();
     } catch (err) {
       resultadosAdv = [];
+      avisosCargaAdv = [];
+      resetFiltrosAdv();
+      $('filaFiltros').hidden = true;
       renderAdv();
       $('resumenAdv').hidden = true;
       $('advertenciasAdv').innerHTML = '';
@@ -1142,8 +1276,10 @@
   });
 
   $('btnExport').addEventListener('click', () => {
-    if (!resultadosAdv.length || !estado.adv || estado.adv.estado !== 'ok') return;
-    const datos = resultadosAdv.map(r => ({
+    if (!estado.adv || estado.adv.estado !== 'ok') return;
+    const filas = filasVisiblesAdv();
+    if (!filas.length) return;
+    const datos = filas.map(r => ({
       'NRO ITEM': r.item, 'SIMBOLO': r.simbolo, 'CODIGO': r.codigo, 'DETALLE': r.detalle, 'MARCA': r.marca,
       'CÓD. ALT.': r.alt, 'CARACTERÍSTICA': r.caracteristica, 'CANT. POR BULTO': r.bulto, 'TIPO DE REPOSICIÓN': r.reposicion
     }));
@@ -1155,6 +1291,9 @@
     XLSX.utils.book_append_sheet(libro, hoja, 'Resultados');
     const fecha = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(libro, `Symb0t_${estado.adv.clave}_${fecha}.xlsx`);
+    if (filas.length !== resultadosAdv.length) {
+      mostrarToast(`Se exportaron ${filas.length} de ${resultadosAdv.length} filas.`);
+    }
   });
 
   // ---------- Copiar código al hacer clic ----------
