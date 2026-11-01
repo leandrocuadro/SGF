@@ -747,64 +747,124 @@
     let filaFilaSeleccionadaMemo = null;
     let promesaCatalogo = null;   // se resuelve cuando termina de cargarse el catálogo de productos
 
-    async function cargarProductosGitHub() {
-      const urlCSV = 'https://raw.githubusercontent.com/leandrocuadro/productos.csv/refs/heads/main/productos.csv';
-      try {
-        const respuesta = await fetch(urlCSV);
-        if (!respuesta.ok) throw new Error('No se pudo descargar el archivo CSV');
-        const texto = await respuesta.text();
+    /* ---------- Lectura de Parquet (hyparquet) ---------- */
+    const HYPARQUET_CDN = 'https://cdn.jsdelivr.net/npm/hyparquet@1.31.5/+esm';
+    const URL_PRODUCTOS_PARQUET = [
+      'https://raw.githubusercontent.com/leandrocuadro/SGF/main/productos.parquet',
+      'https://leandrocuadro.github.io/SGF/productos.parquet'
+    ];
+    const URL_CLIENTES_PARQUET = [
+      'https://raw.githubusercontent.com/leandrocuadro/SGF/main/clientes.parquet',
+      'https://leandrocuadro.github.io/SGF/clientes.parquet'
+    ];
+    let hyparquetPromesa = null;
 
-        const lineas = texto.split(/\r\n|\n/);
-        if (lineas.length === 0) return;
+    function cargarHyparquet() {
+      if (!hyparquetPromesa) {
+        hyparquetPromesa = import(HYPARQUET_CDN).catch(err => {
+          hyparquetPromesa = null;
+          throw err;
+        });
+      }
+      return hyparquetPromesa;
+    }
 
-        const encabezados = lineas[0].split(';').map(e => e.replace(/"/g, '').trim().toLowerCase());
-        
-        const idxCodigo = encabezados.findIndex(h => h.includes('código') || h.includes('codigo'));
-        const idxNombre = encabezados.findIndex(h => h === 'nombre');
-        const idxMarca = encabezados.findIndex(h => h === 'marca');
-
-        if (idxCodigo === -1 || idxNombre === -1) return;
-
-        for (let i = 1; i < lineas.length; i++) {
-          if (!lineas[i].trim()) continue;
-          const columnas = lineas[i].split(';').map(c => c.replace(/"/g, '').trim());
-          if (columnas[idxCodigo] && columnas[idxNombre]) {
-            const codigo = columnas[idxCodigo].toUpperCase();
-            const nombre = columnas[idxNombre];
-            const marca = idxMarca !== -1 && columnas[idxMarca] ? columnas[idxMarca] : '';
-            mapaProductosGitHub[codigo] = { nombre, marca };
-          }
+    // Descarga el Parquet completo y lo expone como AsyncBuffer en memoria.
+    // Se descarga entero (1,9 MB el más grande) para no depender de HEAD ni de
+    // Content-Range, que GitHub Pages sirve comprimido o fuera del alcance de CORS.
+    async function descargarParquet(url) {
+      const version = Date.now();
+      const urlVersion = url + (url.includes('?') ? '&' : '?') + 'v=' + version;
+      const res = await fetch(urlVersion, { cache: 'no-store' });
+      if (!res.ok) {
+        const err = new Error('HTTP ' + res.status);
+        err.status = res.status;
+        throw err;
+      }
+      const buf = await res.arrayBuffer();
+      return {
+        byteLength: buf.byteLength,
+        async slice(start, end = buf.byteLength) {
+          const desde = Math.max(0, Number(start) || 0);
+          const hasta = Math.min(buf.byteLength, end === undefined || end === null ? buf.byteLength : Number(end));
+          return buf.slice(desde, hasta);
         }
-        
-        mostrarToast("Base de datos de productos sincronizada desde GitHub", "info");
+      };
+    }
+
+    // Prueba las URLs en orden: GitHub raw y, si falla, GitHub Pages del mismo repo
+    async function leerParquet(urls) {
+      const hyparquet = await cargarHyparquet();
+      let ultimoError = null;
+      for (const url of urls) {
+        try {
+          const file = await descargarParquet(url);
+          return await hyparquet.parquetReadObjects({ file });
+        } catch (e) {
+          ultimoError = e;
+          console.warn('No se pudo leer el Parquet:', url, e);
+        }
+      }
+      throw ultimoError || new Error('No se pudo leer el archivo Parquet.');
+    }
+
+    // Busca la clave real de un objeto comparando nombres sin acentos ni mayúsculas
+    function buscarColumna(fila, nombresPosibles) {
+      if (!fila) return null;
+      const claves = Object.keys(fila);
+      for (const posible of nombresPosibles) {
+        const buscado = normalizarEncabezado(posible);
+        for (const clave of claves) {
+          if (normalizarEncabezado(clave) === buscado) return clave;
+        }
+      }
+      return null;
+    }
+
+    /* ---------- Catálogo de productos (GitHub: productos.parquet) ---------- */
+    async function cargarProductosGitHub() {
+      try {
+        const filas = await leerParquet(URL_PRODUCTOS_PARQUET);
+        if (!filas || !filas.length) throw new Error('El archivo de productos está vacío.');
+        const kCodigo = buscarColumna(filas[0], ['Código', 'Codigo']);
+        const kNombre = buscarColumna(filas[0], ['Nombre']);
+        if (kCodigo === null || kNombre === null) throw new Error('El archivo de productos no tiene las columnas Código y Nombre');
+        const kMarca = buscarColumna(filas[0], ['Marca']);
+
+        const mapa = {};
+        for (const fila of filas) {
+          const codigo = String(fila[kCodigo] == null ? '' : fila[kCodigo]).trim().toUpperCase();
+          const nombre = String(fila[kNombre] == null ? '' : fila[kNombre]).replace(/\s+/g, ' ').trim();
+          if (!codigo || !nombre) continue;
+          const marca = kMarca === null ? '' : String(fila[kMarca] == null ? '' : fila[kMarca]).replace(/\s+/g, ' ').trim();
+          mapa[codigo] = { nombre, marca };
+        }
+        mapaProductosGitHub = mapa;
+
+        mostrarToast('Base de datos de productos sincronizada desde GitHub', 'info');
       } catch (error) {
-        console.error("Error al cargar la base de datos de GitHub:", error);
+        console.error('Error al cargar la base de datos de GitHub:', error);
       }
     }
 
-    /* ---------- Catálogo de clientes (GitHub: clientes.csv, columnas "codigo;nombre") ---------- */
+    /* ---------- Catálogo de clientes (GitHub: clientes.parquet) ---------- */
     let mapaClientesGitHub = {};
 
     async function cargarClientesGitHub() {
-      const urlCSV = 'https://raw.githubusercontent.com/leandrocuadro/productos.csv/refs/heads/main/clientes.csv';
       try {
-        const respuesta = await fetch(urlCSV);
-        if (!respuesta.ok) throw new Error('No se pudo descargar el archivo de clientes');
-        // El archivo está guardado en Windows-1252 (Ñ y tildes): decodificarTexto prueba UTF-8 y, si falla, Windows-1252
-        const texto = decodificarTexto(await respuesta.arrayBuffer());
-        const lineas = texto.split(/\r\n|\n|\r/);
-        const encabezados = (lineas[0] || '').split(';').map(e => normalizarEncabezado(e));
-        const idxCodigo = encabezados.indexOf('codigo');
-        const idxNombre = encabezados.indexOf('nombre');
-        if (idxCodigo === -1 || idxNombre === -1) throw new Error("El archivo de clientes no tiene las columnas 'codigo' y 'nombre'");
+        const filas = await leerParquet(URL_CLIENTES_PARQUET);
+        if (!filas || !filas.length) throw new Error('El archivo de clientes está vacío.');
+        const kCodigo = buscarColumna(filas[0], ['Codigo', 'Código']);
+        const kNombre = buscarColumna(filas[0], ['Nombre']);
+        if (kCodigo === null || kNombre === null) throw new Error("El archivo de clientes no tiene las columnas 'codigo' y 'nombre'");
 
         const nuevo = {};
-        for (let i = 1; i < lineas.length; i++) {
-          if (!lineas[i].trim()) continue;
-          const col = lineas[i].split(';').map(c => c.replace(/"/g, '').trim());
-          const nombre = (col[idxNombre] || '').replace(/\s+/g, ' ').trim();
-          const clave = claveCliente(col[idxCodigo]);
-          if (clave && nombre) nuevo[clave] = nombre;
+        for (const fila of filas) {
+          const nombre = String(fila[kNombre] == null ? '' : fila[kNombre]).replace(/\s+/g, ' ').trim();
+          // Entradas de baja o de prueba, marcadas "NO USAR" en la base
+          if (!nombre || /no usar/i.test(nombre)) continue;
+          const clave = claveCliente(fila[kCodigo]);
+          if (clave) nuevo[clave] = nombre;
         }
         mapaClientesGitHub = nuevo;
         construirIndiceClientes(nuevo);
