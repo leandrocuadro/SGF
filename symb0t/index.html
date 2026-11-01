@@ -345,7 +345,7 @@
         <thead>
           <tr><th>NRO ITEM</th><th>SIMBOLO</th><th>CODIGO</th><th>DETALLE</th><th>MARCA</th><th>CÓD. ALT.</th><th>CARACTERÍSTICA</th><th>CANT. POR BULTO</th><th>TIPO DE REPOSICIÓN</th></tr>
           <tr class="fila-filtros" id="filaFiltros" hidden>
-            <th><input class="filtro-celda" id="fItem" data-filtro="item" inputmode="numeric" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por nro item"></th>
+            <th><input class="filtro-celda" id="fItem" data-filtro="item" inputmode="numeric" autocomplete="off" placeholder="Filtrar..." title="Coincidencia exacta: 1 trae solo el ítem 1" aria-label="Filtrar por nro item (exacto)"></th>
             <th><input class="filtro-celda" id="fSimbolo" data-filtro="simbolo" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por símbolo"></th>
             <th><input class="filtro-celda" id="fCodigo" data-filtro="codigo" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por código"></th>
             <th><input class="filtro-celda" id="fDetalle" data-filtro="detalle" autocomplete="off" placeholder="Filtrar..." aria-label="Filtrar por detalle"></th>
@@ -1039,7 +1039,7 @@
   // ---------- Búsqueda avanzada ----------
   // Filtros de texto por columna. Se combinan con AND entre columnas.
   const CAMPOS_FILTRO = {
-    item: { id: 'fItem', valor: r => r.item },
+    item: { id: 'fItem', valor: r => r.item, exacto: true },
     simbolo: { id: 'fSimbolo', valor: r => r.simbolo },
     codigo: { id: 'fCodigo', valor: r => r.codigo },
     detalle: { id: 'fDetalle', valor: r => r.detalle },
@@ -1059,6 +1059,11 @@
     return tokens.every(t => texto.includes(t));
   }
 
+  // Coincidencia literal (solo para columnas como NRO ITEM)
+  function coincideExacto(valor, filtro) {
+    return normalizar(valor) === normalizar(filtro);
+  }
+
   function filtrosActivos() {
     return Object.keys(filtrosAdv).filter(k => normalizar(filtrosAdv[k])).length;
   }
@@ -1066,9 +1071,13 @@
   function filasVisiblesAdv() {
     const activos = Object.keys(CAMPOS_FILTRO).filter(k => normalizar(filtrosAdv[k]));
     if (!activos.length) return resultadosAdv;
-    return resultadosAdv.filter(r => activos.every(k =>
-      coincideFiltro(CAMPOS_FILTRO[k].valor(r), filtrosAdv[k])
-    ));
+    return resultadosAdv.filter(r => activos.every(k => {
+      const campo = CAMPOS_FILTRO[k];
+      const valor = campo.valor(r);
+      return campo.exacto
+        ? coincideExacto(valor, filtrosAdv[k])
+        : coincideFiltro(valor, filtrosAdv[k]);
+    }));
   }
 
   function resetFiltrosAdv() {
