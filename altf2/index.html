@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AltF2 | Buscador de Productos v1.1.0</title>
+    <title>AltF2 | Buscador de Productos v1.3.0</title>
     <link rel="icon" type="image/png" href="logo.png">
 
     <!-- Google Fonts: Inter & JetBrains Mono -->
@@ -467,7 +467,21 @@
             border-radius: 999px;
         }
 
-        .table-responsive { width: 100%; overflow-x: auto; }
+        /* Contenedor con scroll propio para que el encabezado quede fijo */
+        .table-responsive { width: 100%; max-height: 70vh; overflow: auto; }
+
+        /* Encabezado fijo al hacer scroll en la tabla */
+        thead tr:first-child th {
+            position: sticky;
+            top: 0;
+            z-index: 3;
+        }
+
+        tr.filter-row th {
+            position: sticky;
+            top: var(--head-h, 42px);
+            z-index: 2;
+        }
 
         table {
             width: 100%;
@@ -719,7 +733,7 @@
             <img src="logo.png" alt="AltF2 Logo" class="brand-logo-img" onerror="this.src='https://raw.githubusercontent.com/leandrocuadro/SGF/main/altf2/logo.png'">
             <div class="brand-text-group">
                 <div class="brand-subtitle">Buscador de Productos</div>
-                <div class="app-version">v1.1.0</div>
+                <div class="app-version">v1.3.0</div>
             </div>
         </div>
         <div id="status" class="status-badge success">✅ 46.374 productos disponibles</div>
@@ -1037,8 +1051,26 @@
             });
         });
 
+        ajustarEncabezadoFijo();
+        window.addEventListener('resize', ajustarEncabezadoFijo);
+
         await cargarProductosParquet();
     };
+
+    // Mide la altura de la primera fila del encabezado para ubicar la fila de filtros justo debajo
+    function ajustarEncabezadoFijo() {
+        const primeraFila = document.querySelector('thead tr:first-child');
+        if (primeraFila) {
+            document.documentElement.style.setProperty('--head-h', primeraFila.offsetHeight + 'px');
+        }
+    }
+
+    // Aviso no bloqueante en la barra de estado (estilo "cargando")
+    function mostrarAviso(mensaje) {
+        const statusDiv = document.getElementById('status');
+        statusDiv.innerHTML = `⏳ ${mensaje}`;
+        statusDiv.className = 'status-badge loading';
+    }
 
     function mostrarError(mensaje) {
         const statusDiv = document.getElementById('status');
@@ -1065,7 +1097,7 @@
     // Búsqueda principal (campos de arriba). Luego se aplican los filtros y el orden de los encabezados.
     function filtrarProductos() {
         if (!productos || productos.length === 0) {
-            alert("La base de datos aún no se ha cargado.");
+            mostrarAviso("La base de productos aún no está cargada. Esperá a que aparezca el contador.");
             return;
         }
 
