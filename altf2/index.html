@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AltF2 | Buscador de Productos</title>
+    <title>AltF2 | Buscador de Productos v1.1.0</title>
     <link rel="icon" type="image/png" href="logo.png">
 
     <!-- Google Fonts: Inter & JetBrains Mono -->
@@ -127,6 +127,13 @@
             display: flex;
             align-items: center;
             gap: 8px;
+        }
+
+        .app-version {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--ink-3);
+            margin-top: 2px;
         }
 
         .brand-subtitle::before {
@@ -712,6 +719,7 @@
             <img src="logo.png" alt="AltF2 Logo" class="brand-logo-img" onerror="this.src='https://raw.githubusercontent.com/leandrocuadro/SGF/main/altf2/logo.png'">
             <div class="brand-text-group">
                 <div class="brand-subtitle">Buscador de Productos</div>
+                <div class="app-version">v1.1.0</div>
             </div>
         </div>
         <div id="status" class="status-badge success">✅ 46.374 productos disponibles</div>
@@ -1101,8 +1109,9 @@
             const matchD2 = !d2 || textoBusqueda.includes(d2);
             const matchD3 = !d3 || textoBusqueda.includes(d3);
             const matchMarca = marcas.length === 0 || marcas.some(m => pMarca.includes(m));
-            const matchCod = !cod || pCod.includes(cod);
-            const matchCodAlt = !codAlt || pCodAlt.includes(codAlt);
+            // Códigos: coincidencia exacta (no "contiene")
+            const matchCod = !cod || pCod === cod;
+            const matchCodAlt = !codAlt || pCodAlt === codAlt;
 
             // Restricción 1: el código (formateado, sin espacios) debe tener exactamente 8 dígitos
             const matchCod8 = !soloCod8 || /^\d{8}$/.test(c.cod.replace(/\s/g, ''));
