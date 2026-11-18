@@ -887,11 +887,19 @@
       return clave ? mapaClientesGitHub[clave] : undefined;
     }
 
+    // Cliente de prueba "libre": para cotizaciones rápidas a clientes spot.
+    // Con este código el nombre se escribe a mano y no se valida ni se completa contra la base.
+    const CODIGO_CLIENTE_LIBRE = '1';
+    function esClienteLibre(codigo) {
+      return claveCliente(codigo) === CODIGO_CLIENTE_LIBRE;
+    }
+
     // Si el catálogo terminó de cargar después de que el usuario escribió el código, completa el nombre vacío
     function completarClienteSiVacio() {
       const inputNro = document.getElementById('metaNroCliente');
       const inputCli = document.getElementById('metaCliente');
       if (!inputNro || !inputCli || inputCli.value.trim()) return;
+      if (esClienteLibre(inputNro.value)) return;
       const nombre = buscarCliente(inputNro.value);
       if (nombre) { inputCli.value = nombre; inputCli.dataset.auto = nombre; programarAutosave(); }
     }
@@ -904,7 +912,11 @@
       inputNro.addEventListener('input', function () {
         const codigo = inputNro.value.trim();
         const nombre = buscarCliente(codigo);
-        if (nombre) {
+        if (esClienteLibre(codigo)) {
+          // Cliente de prueba libre: el nombre lo escribe el usuario. Solo se borra lo que se había completado solo.
+          if (inputCli.dataset.auto && inputCli.value === inputCli.dataset.auto) inputCli.value = '';
+          inputCli.dataset.auto = '';
+        } else if (nombre) {
           // Código del catálogo: completa el nombre del cliente
           inputCli.value = nombre;
           inputCli.dataset.auto = nombre;
@@ -1034,6 +1046,7 @@
       const inputCli = document.getElementById('metaCliente');
       const texto = normalizarNombre(inputCli.value);
       if (!texto) return;
+      if (esClienteLibre(inputNro.value)) return;   // cliente de prueba libre: el nombre no se corrige contra la base
       if (inputNro.value.trim()) {
         // Ya hay Nro. Cliente: nunca se lo cambia. Solo se corrigen mayúsculas/tildes si el nombre corresponde a ese Nro.
         const oficial = buscarCliente(inputNro.value);
@@ -1054,6 +1067,8 @@
       const nom = document.getElementById('metaCliente').value.trim();
       const hayBase = indiceClientes.length > 0;
       let errNro = '', errCli = '';
+      // Cliente de prueba libre: solo se exige el nombre, sin validarlo contra la base
+      if (esClienteLibre(nro)) return { errNro: '', errCli: nom ? '' : 'Obligatorio.' };
       if (!nro) errNro = 'Obligatorio.';
       else if (hayBase && !buscarCliente(nro)) errNro = 'Este N° no figura en la base de clientes.';
       if (!nom) errCli = 'Obligatorio.';
@@ -1083,7 +1098,7 @@
       const inputCli = document.getElementById('metaCliente');
       cerrarSugerencias();
       // Código válido con el nombre vacío: se completa solo
-      if (!inputCli.value.trim()) {
+      if (!inputCli.value.trim() && !esClienteLibre(inputNro.value)) {
         const oficial = buscarCliente(inputNro.value);
         if (oficial) { inputCli.value = oficial; inputCli.dataset.auto = oficial; }
       }
@@ -1483,17 +1498,31 @@
       return Array.from(document.querySelectorAll('#tbodyPresupuesto tr')).some(tr => !filaVacia(tr));
     }
 
+    // Redondeo comercial a 2 decimales: si el tercer decimal es 5 o más, sube (1,005 -> 1,01; 2,344 -> 2,34)
+    function redondear2(n) {
+      const signo = n < 0 ? -1 : 1;
+      const a = Math.round(Math.abs(n) * 1e6) / 1e6;   // quita el ruido de punto flotante antes de redondear
+      return signo * Math.floor(a * 100 + 0.5 + 1e-9) / 100;
+    }
+
     function calcularFila(tr) {
       const cantidad = leerNumero(tr.querySelector('.col-cantidad'));
       let precioLista = leerNumero(tr.querySelector('.col-precio'));
       const monedaFilaEl = tr.querySelector('.col-monedafila');
       const monedaFila = monedaFilaEl ? monedaFilaEl.value : '$';
 
+      // Falta cotización para convertir: la fila queda marcada y no se inventa un importe
+      let faltaTasa = false;
       if (monedaFila !== monedaActual) {
         const tasaOrigen = obtenerTasaEnPesos(monedaFila);
         const tasaDestino = obtenerTasaEnPesos(monedaActual);
-        if (tasaDestino > 0) precioLista = (precioLista * tasaOrigen) / tasaDestino;
+        faltaTasa = !(tasaOrigen > 0) || !(tasaDestino > 0);
+        if (tasaOrigen > 0 && tasaDestino > 0) precioLista = redondear2((precioLista * tasaOrigen) / tasaDestino);
+        else precioLista = 0;
       }
+      const precioInput = tr.querySelector('.col-precio');
+      precioInput.classList.toggle('campo-invalido', faltaTasa);
+      precioInput.title = faltaTasa ? 'Falta la cotización de la moneda de esta fila o de la moneda del presupuesto' : '';
 
       let costoNetoUnit = precioLista;
       ['.col-d1', '.col-d2', '.col-d3', '.col-d4', '.col-d5'].forEach(sel => {
@@ -1505,16 +1534,18 @@
       });
       const margen = leerNumero(tr.querySelector('.col-margen'));
 
-      const precioVentaUnit = costoNetoUnit * (1 + margen / 100);
-      const totalPrecioVentaFila = precioVentaUnit * cantidad;
+      // Unitarios redondeados a 2 decimales; el total de la fila sale del unitario ya redondeado,
+      // así "unitario × cantidad" coincide siempre con el total impreso y con el PDF
+      const costoUnitR = redondear2(costoNetoUnit);
+      const ventaUnitR = redondear2(costoUnitR * (1 + margen / 100));
+      const totalPrecioVentaFila = redondear2(ventaUnitR * cantidad);
 
-      // Valores sin redondear para los totales (evita diferencias de centavos)
       tr.dataset.listaConv = precioLista;
-      tr.dataset.costoNeto = costoNetoUnit;
+      tr.dataset.costoNeto = costoUnitR;
       tr.dataset.totalVenta = totalPrecioVentaFila;
 
-      tr.querySelector('.col-costo').value = costoNetoUnit.toFixed(2);
-      tr.querySelector('.col-venta').value = precioVentaUnit.toFixed(2);
+      tr.querySelector('.col-costo').value = costoUnitR.toFixed(2);
+      tr.querySelector('.col-venta').value = ventaUnitR.toFixed(2);
       tr.querySelector('.col-totventa').value = totalPrecioVentaFila.toFixed(2);
     }
 
@@ -1697,6 +1728,7 @@
       document.getElementById('kpiVenta').innerText = fmt(sumaVenta);
       document.getElementById('kpiGanancia').innerText = fmt(ganancia);
       document.getElementById('kpiMargenVenta').innerText = `Margen s/venta: ${margenSobreVenta.toFixed(1)}%`;
+      actualizarAvisoCotizaciones();   // el aviso también aparece al cambiar la moneda de una sola fila
     }
 
     // Reconoce la moneda por denominación, símbolo o código numérico:
