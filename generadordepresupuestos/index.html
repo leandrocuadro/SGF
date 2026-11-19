@@ -306,6 +306,12 @@
     }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
+    /* Modo parte (usuario asignado): solo puede completar sus ítems */
+    body.modo-parte .solo-coordinador { display: none !important; }
+    body.modo-parte td > button[title="Eliminar fila"] { display: none; }
+    #bannerParte { display: none; }
+    body.modo-parte #bannerParte { display: flex; }
+
     /* Menús desplegables */
     .dropdown-menu {
       opacity: 0;
@@ -352,7 +358,7 @@
     <div class="bg-[#111827] px-4 py-1 text-[11px] text-gray-400 flex justify-between items-center border-b border-gray-800 select-none">
       <div class="flex items-center gap-2">
         <i class="fa-solid fa-calculator text-[#0078d4]"></i>
-        <span id="etiquetaVersion" class="font-semibold text-gray-300">Generador de Presupuestos v3.4.1</span>
+        <span id="etiquetaVersion" class="font-semibold text-gray-300">Generador de Presupuestos v3.5</span>
       </div>
       <div class="flex items-center gap-2 text-xs">
         <span id="indicadorRed" class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Conexión a internet"></span>
@@ -388,7 +394,7 @@
             <i class="fa-solid fa-file-import"></i> Importar <i class="fa-solid fa-chevron-down text-[9px] ml-0.5 opacity-80"></i>
           </button>
           <div id="dropdownImportar" class="dropdown-menu absolute right-0 sm:left-0 mt-1 w-56 bg-white rounded-sm shadow-xl border border-gray-300 z-50 overflow-hidden">
-            <label class="flex items-center gap-2.5 px-3 py-2 text-xs text-gray-700 hover:bg-[#e5f3ff] cursor-pointer transition-colors border-b border-gray-100">
+            <label class="solo-coordinador flex items-center gap-2.5 px-3 py-2 text-xs text-gray-700 hover:bg-[#e5f3ff] cursor-pointer transition-colors border-b border-gray-100">
               <i class="fa-solid fa-file-excel text-[#0078d4] w-4 text-center"></i> Importar Excel / CSV
               <input type="file" id="inputExcel" accept=".xlsx, .xls, .csv" onchange="importarExcel(event)" class="hidden">
             </label>
@@ -398,6 +404,7 @@
             <label class="flex items-center gap-2.5 px-3 py-2 text-xs text-gray-700 hover:bg-[#e5f3ff] cursor-pointer transition-colors">
               <i class="fa-solid fa-file-code text-[#0078d4] w-4 text-center"></i> Cargar Backup JSON
               <input type="file" id="inputBackupJSON" accept=".json,application/json" onchange="cargarBackupJSON(event)" class="hidden">
+              <input type="file" id="inputPartes" accept=".json,application/json" multiple onchange="unirPartes(event)" class="hidden">
             </label>
           </div>
         </div>
@@ -504,14 +511,24 @@
       </div>
     </div>
 
+    <div id="bannerParte" class="items-center gap-2 mb-3 px-3 py-2 rounded-sm border border-amber-300 bg-amber-50 text-amber-900 text-xs no-print">
+      <i class="fa-solid fa-user-tag"></i> <span id="textoBannerParte"></span>
+    </div>
+
     <!-- Toolbar -->
     <div class="flex flex-wrap justify-between items-center gap-2 mb-3 no-print">
       <div class="flex items-center gap-2">
-        <button onclick="agregarFila()" class="win-btn win-btn-primary text-xs">
+        <button onclick="agregarFila()" class="win-btn win-btn-primary text-xs solo-coordinador">
           <i class="fa-solid fa-plus"></i> Agregar Ítem
         </button>
-        <button onclick="agregarMultiplesFilas(5)" class="win-btn text-xs">
+        <button onclick="agregarMultiplesFilas(5)" class="win-btn text-xs solo-coordinador">
           +5 Filas
+        </button>
+        <button onclick="dividirPorUsuario()" class="win-btn text-xs solo-coordinador" title="Crea un archivo JSON por usuario con los ítems que tengan número de usuario asignado">
+          <i class="fa-solid fa-scissors"></i> Dividir por usuario
+        </button>
+        <button onclick="document.getElementById('inputPartes').click()" class="win-btn text-xs solo-coordinador" title="Importa los JSON de los usuarios para unificar el presupuesto">
+          <i class="fa-solid fa-object-group"></i> Unir partes
         </button>
       </div>
 
@@ -519,7 +536,7 @@
         <button onclick="limpiarFiltros()" class="win-btn text-xs">
           <i class="fa-solid fa-filter-circle-xmark text-gray-500"></i> Limpiar Filtros
         </button>
-        <button onclick="limpiarTodo()" class="win-btn text-xs text-red-600 hover:text-red-700" title="Borra los ítems de la tabla (no toca los datos del encabezado)">
+        <button onclick="limpiarTodo()" class="win-btn text-xs text-red-600 hover:text-red-700 solo-coordinador" title="Borra los ítems de la tabla (no toca los datos del encabezado)">
           <i class="fa-solid fa-trash-can"></i> Limpiar Ítems
         </button>
       </div>
@@ -579,6 +596,7 @@
               <th class="w-28">19. Código Cliente B</th>
               <th class="w-10 text-center no-print">Memo</th>
               <th class="w-10 text-center no-print">Acción</th>
+              <th class="w-16 text-center no-print" title="Número de usuario asignado (0 = no se presenta oferta; uso interno, no sale en PDF ni CSV)">Usuario</th>
             </tr>
 
             <!-- Fila de Filtros -->
@@ -607,6 +625,7 @@
               <td class="p-1"><input type="text" data-col="col-codcliente2" oninput="filtrarTabla()" placeholder="Filtrar..." class="cell-input"></td>
               <td class="p-1 no-print"></td>
               <td class="p-1 no-print"></td>
+              <td class="p-1 no-print"><input type="text" data-col="col-usuario" oninput="filtrarTabla()" placeholder="Filtrar..." class="cell-input text-center"></td>
             </tr>
           </thead>
           <tbody id="tbodyPresupuesto" class="text-xs">
@@ -615,12 +634,10 @@
 
           <tfoot>
             <tr class="bg-[#f3f4f6] text-gray-800 font-bold text-xs border-t-2 border-gray-400">
-              <td class="p-2 text-center no-print">∑</td>
+              <td class="p-2 text-center no-print"></td>
               <td class="p-2"></td>
-              <td id="totalCantidad" class="p-2 text-center text-[#0078d4] font-mono">0</td>
-              <td colspan="5" class="p-2 text-right uppercase tracking-wider text-[11px] text-gray-600">Totales (precio × cantidad):</td>
-              <td id="totalPrecioLista" class="p-2 text-right font-mono">$ 0.00</td>
-              <td colspan="6" class="p-2 text-center text-gray-400 font-normal text-[10px]">(Aplica descuento en cascada)</td>
+              <td class="p-2"></td>
+              <td colspan="12" class="p-2 text-right uppercase tracking-wider text-[11px] text-gray-600">Costo Neto total:</td>
               <td id="totalCostoNetoUnit" class="p-2 text-right text-emerald-800 font-mono text-xs bg-[#e6f4ea]">$ 0.00</td>
               <td id="promedioMargen" class="p-2 text-center text-blue-800 font-mono bg-blue-50">0.0%</td>
               <td id="totalPrecioVentaUnit" class="p-2 text-right text-blue-900 font-mono text-xs bg-indigo-50">$ 0.00</td>
@@ -633,17 +650,7 @@
     </div>
 
     <!-- KPIs -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-      <div class="win-card p-3 flex items-center justify-between">
-        <div>
-          <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Unidades Totales</p>
-          <p id="kpiUnidades" class="text-xl font-bold text-gray-800 font-mono mt-0.5">0</p>
-        </div>
-        <div class="p-2.5 bg-[#e5f3ff] text-[#0078d4] rounded-sm">
-          <i class="fa-solid fa-cubes text-lg"></i>
-        </div>
-      </div>
-
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-4">
       <div class="win-card p-3 flex items-center justify-between">
         <div>
           <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Costo Neto Total</p>
@@ -1326,10 +1333,13 @@
       if (e.key === 'Escape' && !document.getElementById('modalPDF').classList.contains('hidden')) cerrarVistaPreviaPDF();
     });
 
+    function nuevoUid() { return 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
     function agregarFila(datos = null) {
       const tbody = document.getElementById('tbodyPresupuesto');
       const numFila = tbody.children.length + 1;
       const tr = document.createElement('tr');
+      tr.dataset.uid = (datos && datos.uid) || nuevoUid();
 
       const memoInicial = datos && datos.memo ? datos.memo : '';
       tr.dataset.memo = memoInicial;
@@ -1374,6 +1384,7 @@
             <i class="fa-solid fa-xmark text-sm"></i>
           </button>
         </td>
+        <td class="p-0.5 text-center no-print"><input type="text" maxlength="2" inputmode="numeric" class="cell-input text-center font-bold col-usuario" title="Número de usuario asignado (0 = no se presenta oferta)" placeholder="—" value="${escaparHTML(datos && datos.usuario !== undefined ? datos.usuario : '')}"></td>
       `;
 
       const inputs = tr.querySelectorAll('input');
@@ -1719,14 +1730,11 @@
       const margenSobreVenta = sumaVenta > 0 ? (ganancia / sumaVenta) * 100 : 0;
       const fmt = n => `${sim} ${n.toFixed(2)}`;
 
-      document.getElementById('totalCantidad').innerText = sumaCantidad;
-      document.getElementById('totalPrecioLista').innerText = fmt(sumaLista);
       document.getElementById('totalCostoNetoUnit').innerText = fmt(sumaCosto);
       document.getElementById('totalPrecioVentaUnit').innerText = '—';
       document.getElementById('totalPrecioVentaFila').innerText = fmt(sumaVenta);
       document.getElementById('promedioMargen').innerText = `${margenSobreCosto.toFixed(1)}% pond.`;
 
-      document.getElementById('kpiUnidades').innerText = sumaCantidad;
       document.getElementById('kpiCosto').innerText = fmt(sumaCosto);
       document.getElementById('kpiVenta').innerText = fmt(sumaVenta);
       document.getElementById('kpiGanancia').innerText = fmt(ganancia);
@@ -1797,7 +1805,8 @@
       ['d4','Descuento 4 %',['d4','desc 4']], ['d5','Descuento 5 %',['d5','desc 5']],
       ['margen','Margen %',[]], ['origen','Proveedor',['origen']],
       ['codCliente','Código Cliente A',['cod cliente']], ['codCliente2','Código Cliente B',['cod cliente 2']],
-      ['memo','Memo',['nota','notas internas']]
+      ['memo','Memo',['nota','notas internas']],
+      ['usuario','Usuario',['usuario user','nro usuario','numero usuario']]
     ];
     function normalizarEncabezado(v) {
       return String(v == null ? '' : v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -1852,10 +1861,10 @@
     function descargarPlantillaCSV() {
       cerrarDropdowns();
       const encabezados = ['Ítem', 'Cantidad', 'Código', 'Detalle Artículo', 'Marca', 'Solicitud Cliente', 'Observaciones', 'Precio Lista', 'Moneda Costo',
-        'Descuento 1 %', 'Descuento 2 %', 'Descuento 3 %', 'Descuento 4 %', 'Descuento 5 %', 'Margen %', 'Proveedor', 'Código Cliente A', 'Código Cliente B', 'Memo'];
+        'Descuento 1 %', 'Descuento 2 %', 'Descuento 3 %', 'Descuento 4 %', 'Descuento 5 %', 'Margen %', 'Proveedor', 'Código Cliente A', 'Código Cliente B', 'Memo', 'Usuario'];
       const ejemplos = [
-        ['1', '5', 'EJEMPLO-001', 'Ejemplo: reemplazar por el artículo real', 'Marca', 'Entrega en obra', 'Oferta', '150000,00', '$', '10', '', '', '', '', '35', 'Nacional', 'CLI-A10', '', 'Nota interna (opcional)'],
-        ['2', '2', 'EJEMPLO-002', 'Ejemplo en dólares: borrar esta fila', 'Marca', '', '', '1000,00', 'USD', '', '', '', '', '', '20', 'Importado', '', '', '']
+        ['1', '5', 'EJEMPLO-001', 'Ejemplo: reemplazar por el artículo real', 'Marca', 'Entrega en obra', 'Oferta', '150000,00', '$', '10', '', '', '', '', '35', 'Nacional', 'CLI-A10', '', 'Nota interna (opcional)', '1'],
+        ['2', '2', 'EJEMPLO-002', 'Ejemplo en dólares: borrar esta fila', 'Marca', '', '', '1000,00', 'USD', '', '', '', '', '', '20', 'Importado', '', '', '', '0']
       ];
       const lineas = [encabezados, ...ejemplos].map(fila => fila.map(csvCell).join(';'));
       descargarArchivo('Plantilla_importacion_presupuesto.csv', '﻿' + lineas.join('\r\n'), 'text/csv;charset=utf-8');
@@ -2266,6 +2275,7 @@ const ANCHO_HELV_BOLD=[278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 58
         const headers = headerIndex >= 0 ? matrix[headerIndex].map(norm) : null;
         const data = matrix.slice(headerIndex >= 0 ? headerIndex + 1 : 0).filter(row => row.some(v => String(v).trim() !== ''));
         let monedasNoReconocidas = 0;
+        let usuariosInvalidos = 0;
         const items = data.map(row => {
           const item = {};
           camposExcel.forEach((c, i) => {
@@ -2283,6 +2293,12 @@ const ANCHO_HELV_BOLD=[278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 58
             if (item[k] !== undefined && item[k] !== '' && !isNaN(n)) item[k] = Math.min(100, Math.max(limiteMinimoDescuento('col-' + k), n));
           });
           if (item.cantidad === '' || item.cantidad === undefined) item.cantidad = 1;
+          if (item.usuario !== undefined) {
+            const t = String(item.usuario).trim().replace(/\.0+$/, '');   // Excel a veces guarda 1 como 1.0
+            if (t === '') item.usuario = '';
+            else if (/^(0|[1-9]\d?)$/.test(t)) item.usuario = t;
+            else { item.usuario = ''; usuariosInvalidos++; }
+          }
           if (item.monedaFila !== undefined && String(item.monedaFila).trim() !== '') {
             const reconocida = reconocerMoneda(item.monedaFila);
             if (!reconocida) monedasNoReconocidas++;
@@ -2297,6 +2313,7 @@ const ANCHO_HELV_BOLD=[278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 58
         // Espera a que el catálogo de productos termine de cargar (por si se importa recién abierta la app)
         if (promesaCatalogo) { try { await promesaCatalogo; } catch (e) { /* se informa más abajo */ } }
         document.getElementById('tbodyPresupuesto').innerHTML = '';
+        pliegoIdActual = null;
         let completados = 0;
         items.forEach(item => { const tr = agregarFila(item); if (completarDesdeCatalogo(tr)) completados++; });
         recalcularPresupuestoCompleto(); programarAutosave();
@@ -2305,6 +2322,7 @@ const ANCHO_HELV_BOLD=[278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 58
         let aviso = 'Importación completada: ' + items.length + ' ítem(s).';
         if (completados) aviso += ' Detalle y Marca completados desde el catálogo en ' + completados + ' ítem(s).';
         if (conCodigo && catalogoVacio) aviso += ' No se pudo consultar el catálogo de productos (¿sin conexión?): Detalle y Marca quedaron sin completar.';
+        if (usuariosInvalidos) aviso += ' ' + usuariosInvalidos + ' fila(s) con Usuario no válido (use números de 0 a 99) quedaron sin usuario.';
         if (monedasNoReconocidas) mostrarToast(aviso + ' ' + monedasNoReconocidas + ' fila(s) con moneda no reconocida se cargaron en $. Valores válidos: $ o 1, USD o 2, DIVISA o 3, EUR o 58.', 'alerta');
         else mostrarToast(aviso, (conCodigo && catalogoVacio) ? 'alerta' : 'exito');
       } catch (err) { mostrarToast(err.message || 'No se pudo leer el archivo.', 'alerta'); }
@@ -2313,6 +2331,222 @@ const ANCHO_HELV_BOLD=[278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 58
 
     function cerrarDropdowns() {
       document.querySelectorAll('.dropdown-menu').forEach(el => el.classList.remove('dropdown-open'));
+    }
+
+    /* ---- Pliego dividido entre usuarios ----
+       El coordinador asigna a cada ítem un número de usuario (campo "Usuario", uso interno).
+       "Dividir por usuario" genera un JSON por usuario con sus ítems. Cada usuario completa su parte
+       (sin agregar ni borrar ítems). "Unir partes" vuelve a juntar todo en el orden del número de ítem. */
+    let pliegoIdActual = null;   // identifica el pliego: lo comparten el principal y sus partes
+    let parteActiva = null;      // { pliegoId, parte } cuando se trabaja una parte asignada
+
+    function nuevoIdPliego() {
+      return 'P' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
+    }
+
+    // Orden por número de ítem del pliego (1, 1.9, 1.10, 2…); los ítems sin número van al final
+    function ordenPliego(a, b) {
+      const x = String(a == null ? '' : a).trim(), y = String(b == null ? '' : b).trim();
+      if (!x && !y) return 0;
+      if (!x) return 1;
+      if (!y) return -1;
+      return x.localeCompare(y, 'es', { numeric: true });
+    }
+
+    // Activa o desactiva el modo parte: bloquea número de ítem y usuario, y muestra el aviso
+    function aplicarModoParte() {
+      const enParte = !!parteActiva;
+      document.body.classList.toggle('modo-parte', enParte);
+      document.getElementById('textoBannerParte').textContent = enParte
+        ? 'Parte del usuario ' + parteActiva.parte + ' · pliego ' + parteActiva.pliegoId + '. Completá tus ítems: no se pueden agregar ni borrar, ni cambiar su número.'
+        : '';
+      document.querySelectorAll('#tbodyPresupuesto tr').forEach(tr => {
+        tr.querySelectorAll('.col-nroitem, .col-usuario').forEach(el => { el.readOnly = enParte; });
+      });
+    }
+
+    // Prepara el pliego principal y una parte por usuario (sin descargar nada)
+    function prepararPartes() {
+      if (parteActiva) return { error: 'Esta es una parte asignada: no se puede dividir de nuevo.' };
+      const usuariosTexto = Array.from(document.querySelectorAll('#tbodyPresupuesto tr'), tr => (tr.querySelector('.col-usuario')?.value || '').trim()).filter(Boolean);
+      if (!usuariosTexto.length) return { error: 'Asigná un número de usuario a los ítems antes de dividir.' };
+      const invalidos = [...new Set(usuariosTexto.filter(u => !/^(0|[1-9]\d?)$/.test(u)))];
+      if (invalidos.length) return { error: 'Número de usuario no válido: ' + invalidos.join(', ') + '. Usá números enteros de 1 a 99.' };
+      const usuarios = [...new Set(usuariosTexto)].filter(u => u !== '0').sort((a, b) => Number(a) - Number(b));
+      if (!usuarios.length) return { error: 'Todos los ítems asignados están en 0 (no se presenta oferta): no hay nada para dividir.' };
+      const filas = Array.from(document.querySelectorAll('#tbodyPresupuesto tr'));
+      const numeros = filas.map(tr => (tr.querySelector('.col-nroitem')?.value || '').trim()).filter(Boolean);
+      const repetidos = [...new Set(numeros.filter((n, i) => numeros.indexOf(n) !== i))];
+      if (repetidos.length) return { error: 'El número de ítem ' + repetidos.slice(0, 5).join(', ') + (repetidos.length > 5 ? ' y otros' : '') + ' aparece en más de un renglón. Corregí el pliego antes de dividir.' };
+      const sinNumero = filas.filter(tr => !(tr.querySelector('.col-nroitem')?.value || '').trim()).length;
+
+      if (!pliegoIdActual) pliegoIdActual = nuevoIdPliego();
+      const base = construirBackup();
+      const entradas = [{ nombre: 'pliego_' + pliegoIdActual + '_principal.json', texto: JSON.stringify(base, null, 2) }];
+      usuarios.forEach(u => {
+        const parte = Object.assign({}, base, {
+          tipo: 'parte_presupuesto',
+          parte: Number(u),
+          items: base.items.filter(it => String(it.usuario).trim() === u)
+        });
+        entradas.push({ nombre: 'pliego_' + pliegoIdActual + '_usuario_' + u + '.json', texto: JSON.stringify(parte, null, 2) });
+      });
+      const enPrincipal = base.items.filter(it => { const u = String(it.usuario || '').trim(); return !u || u === '0'; }).length;
+      return { id: pliegoIdActual, usuarios, entradas, enPrincipal, sinNumero };
+    }
+
+    function dividirPorUsuario() {
+      cerrarDropdowns();
+      const r = prepararPartes();
+      if (r.error) { mostrarToast(r.error, 'alerta'); return; }
+      if (r.sinNumero && !confirm('Atención: hay ' + r.sinNumero + ' ítem(s) sin número de pliego.\n\nQuedarán al final del pliego y el portal puede rechazarlos.\n\n¿Continuar igual?')) return;
+      const bytes = crearZip(r.entradas);
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'pliego_' + r.id + '_partes.zip');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      programarAutosave();
+      mostrarToast('Se generó un zip con el pliego principal y ' + r.usuarios.length + ' parte(s).' + (r.enPrincipal ? ' ' + r.enPrincipal + ' ítem(s) sin usuario o con usuario 0 quedan en el principal.' : ''), 'exito');
+    }
+
+    // Zip sin compresión (método STORE), generado aquí mismo: no necesita bibliotecas externas
+    const TABLA_CRC = (() => {
+      const t = new Uint32Array(256);
+      for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; }
+      return t;
+    })();
+    function crc32(bytes) {
+      let c = 0xFFFFFFFF;
+      for (let i = 0; i < bytes.length; i++) c = TABLA_CRC[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+      return (c ^ 0xFFFFFFFF) >>> 0;
+    }
+    function crearZip(entradas) {
+      const enc = new TextEncoder();
+      const ahora = new Date();
+      const hora = (ahora.getHours() << 11) | (ahora.getMinutes() << 5) | Math.floor(ahora.getSeconds() / 2);
+      const fecha = ((ahora.getFullYear() - 1980) << 9) | ((ahora.getMonth() + 1) << 5) | ahora.getDate();
+      const locales = [], centrales = [];
+      let offset = 0;
+      entradas.forEach(e => {
+        const nombre = enc.encode(e.nombre), datos = enc.encode(e.texto), crc = crc32(datos);
+        const cab = new DataView(new ArrayBuffer(30));
+        cab.setUint32(0, 0x04034b50, true); cab.setUint16(4, 20, true); cab.setUint16(6, 0x0800, true); cab.setUint16(8, 0, true);
+        cab.setUint16(10, hora, true); cab.setUint16(12, fecha, true); cab.setUint32(14, crc, true);
+        cab.setUint32(18, datos.length, true); cab.setUint32(22, datos.length, true);
+        cab.setUint16(26, nombre.length, true); cab.setUint16(28, 0, true);
+        locales.push(new Uint8Array(cab.buffer), nombre, datos);
+        const dir = new DataView(new ArrayBuffer(46));
+        dir.setUint32(0, 0x02014b50, true); dir.setUint16(4, 20, true); dir.setUint16(6, 20, true); dir.setUint16(8, 0x0800, true);
+        dir.setUint16(10, 0, true); dir.setUint16(12, hora, true); dir.setUint16(14, fecha, true); dir.setUint32(16, crc, true);
+        dir.setUint32(20, datos.length, true); dir.setUint32(24, datos.length, true);
+        dir.setUint16(28, nombre.length, true); dir.setUint32(42, offset, true);
+        centrales.push(new Uint8Array(dir.buffer), nombre);
+        offset += 30 + nombre.length + datos.length;
+      });
+      const tamCentral = centrales.reduce((s, x) => s + x.length, 0);
+      const fin = new DataView(new ArrayBuffer(22));
+      fin.setUint32(0, 0x06054b50, true); fin.setUint16(8, entradas.length, true); fin.setUint16(10, entradas.length, true);
+      fin.setUint32(12, tamCentral, true); fin.setUint32(16, offset, true);
+      const todo = [...locales, ...centrales, new Uint8Array(fin.buffer)];
+      const total = todo.reduce((s, x) => s + x.length, 0);
+      const salida = new Uint8Array(total);
+      let pos = 0;
+      todo.forEach(x => { salida.set(x, pos); pos += x.length; });
+      return salida;
+    }
+
+    async function unirPartes(event) {
+      cerrarDropdowns();
+      const archivos = Array.from(event.target.files || []);
+      event.target.value = '';
+      if (!archivos.length) return;
+      try {
+        if (parteActiva) throw new Error('Esta es una parte asignada: para unir, abrí el presupuesto principal.');
+        if (!pliegoIdActual) throw new Error('Falta el pliego principal: cargá primero el archivo pliego_*_principal.json que se generó al dividir.');
+
+        const partes = [];
+        for (const f of archivos) {
+          let datos;
+          try { datos = JSON.parse(await f.text()); } catch (e) { throw new Error('"' + f.name + '" no es un archivo JSON válido.'); }
+          if (!datos || datos.tipo !== 'parte_presupuesto' || !Array.isArray(datos.items)) throw new Error('"' + f.name + '" no es una parte de presupuesto.');
+          if (datos.pliegoId !== pliegoIdActual) throw new Error('"' + f.name + '" corresponde a otro pliego.');
+          partes.push({ nombre: f.name, parte: String(datos.parte), items: datos.items, metadata: datos.metadata || null });
+        }
+        const repetidas = [...new Set(partes.map(p => p.parte).filter((p, i, arr) => arr.indexOf(p) !== i))];
+        if (repetidas.length) throw new Error('Hay partes repetidas (usuario ' + repetidas.join(', ') + ').');
+
+        const principal = construirBackup();
+        const porUsuario = new Map(partes.map(p => [p.parte, p]));
+        const asignados = new Set(principal.items.map(it => String(it.usuario || '').trim()).filter(u => u && u !== '0'));
+        const itemsPrincipal = new Map(principal.items.map(it => [it.uid, it]));
+        const errores = [];
+
+        // Cada ítem de una parte debe existir en el principal y estar asignado a ese usuario
+        partes.forEach(p => p.items.forEach(it => {
+          const original = itemsPrincipal.get(it.uid);
+          const nro = it.nroItem || '(sin número)';
+          if (!original) errores.push('Usuario ' + p.parte + ': el ítem ' + nro + ' no existe en el principal.');
+          else if (String(original.usuario || '').trim() !== p.parte) errores.push('Usuario ' + p.parte + ': el ítem ' + nro + ' está asignado al usuario ' + (original.usuario || '(ninguno)') + ' en el principal.');
+        }));
+        // Cada ítem asignado debe venir en su parte
+        principal.items.forEach(it => {
+          const u = String(it.usuario || '').trim();
+          const p = porUsuario.get(u);
+          if (p && !p.items.some(x => x.uid === it.uid)) errores.push('Usuario ' + u + ': falta el ítem ' + (it.nroItem || '(sin número)') + ' en su parte.');
+        });
+        partes.forEach(p => { if (!asignados.has(p.parte)) errores.push('El usuario ' + p.parte + ' no tiene ítems asignados en el principal.'); });
+        if (errores.length) throw new Error(errores.slice(0, 5).join(' · ') + (errores.length > 5 ? ' · y ' + (errores.length - 5) + ' más.' : ''));
+
+        const faltantes = [...asignados].filter(u => !porUsuario.has(u)).sort((a, b) => Number(a) - Number(b));
+        if (faltantes.length && !confirm('Faltan las partes de los usuarios ' + faltantes.join(', ') + '. Sus ítems quedarán con los valores actuales del principal. ¿Unir igual?')) return;
+
+        // Cotización: lo que cotizó el usuario tiene prioridad sobre la cabecera del principal
+        const CAMPOS_COTIZACION = ['moneda', 'iva', 'tipoCambioBNA', 'tipoCambioDivisa', 'tipoCambioEUR'];
+        const normCampo = (k, v) => k.startsWith('tipoCambio') ? String(Number(String(v || '').replace(',', '.')) || 0) : String(v || '').trim();
+        const difieren = partes.filter(p => p.metadata && CAMPOS_COTIZACION.some(k => normCampo(k, p.metadata[k]) !== normCampo(k, principal.metadata[k])));
+        let metadataFinal = principal.metadata;
+        if (difieren.length) {
+          const firmas = [...new Set(difieren.map(p => CAMPOS_COTIZACION.map(k => normCampo(k, p.metadata[k])).join('|')))];
+          if (firmas.length > 1) throw new Error('Los usuarios ' + difieren.map(p => p.parte).join(', ') + ' cotizaron con monedas o cotizaciones distintas entre sí. Hay que definir una sola cotización antes de unir.');
+          const ref = difieren[0];
+          const etiquetas = { moneda: 'Moneda', iva: 'IVA', tipoCambioBNA: 'Dólar BNA', tipoCambioDivisa: 'Dólar Divisa', tipoCambioEUR: 'EUR' };
+          const cambios = CAMPOS_COTIZACION.filter(k => normCampo(k, ref.metadata[k]) !== normCampo(k, principal.metadata[k]))
+            .map(k => etiquetas[k] + ': ' + (principal.metadata[k] || '—') + ' → ' + (ref.metadata[k] || '—'));
+          if (!confirm('El usuario ' + ref.parte + ' cotizó con otra cotización:\n' + cambios.join('\n') + '\n\n¿Aplicar esa cotización a todo el presupuesto? Esto recalcula los importes de todos los ítems.')) {
+            throw new Error('Unión cancelada: se mantiene la cotización del principal.');
+          }
+          metadataFinal = Object.assign({}, principal.metadata);
+          CAMPOS_COTIZACION.forEach(k => { metadataFinal[k] = ref.metadata[k]; });
+        }
+
+        const unidos = principal.items.map(it => {
+          const p = porUsuario.get(String(it.usuario || '').trim());
+          if (!p) return it;
+          const nuevo = p.items.find(x => x.uid === it.uid);
+          return nuevo ? Object.assign({}, nuevo, { nroItem: it.nroItem, usuario: it.usuario, uid: it.uid }) : it;
+        });
+        unidos.sort((a, b) => ordenPliego(a.nroItem, b.nroItem));
+
+        aplicarBackup(Object.assign({}, principal, { items: unidos, metadata: metadataFinal }));
+        programarAutosave();
+
+        // Alertas para revisar (no bloquean): ítems sin costo, o con costo y sin margen
+        const costo = it => normalizarNumero(it.precio) || 0;
+        const sinCosto = unidos.filter(it => !(costo(it) > 0)).map(it => it.nroItem || '(sin nº)');
+        const sinMargen = unidos.filter(it => costo(it) > 0 && String(it.margen == null ? '' : it.margen).trim() === '').map(it => it.nroItem || '(sin nº)');
+        const resumen = 'Unión completa: ' + unidos.length + ' ítem(s) de ' + partes.length + ' parte(s), en el orden del pliego.';
+        if (sinCosto.length || sinMargen.length) {
+          mostrarToast(resumen + (sinCosto.length ? ' Sin costo: ' + sinCosto.join(', ') + '.' : '') + (sinMargen.length ? ' Con costo y sin margen: ' + sinMargen.join(', ') + '.' : ''), 'alerta');
+        } else {
+          mostrarToast(resumen, 'exito');
+        }
+      } catch (err) {
+        mostrarToast(err.message || 'No se pudieron unir las partes.', 'alerta');
+      }
     }
 
     function construirBackup() {
@@ -2324,13 +2558,15 @@ const ANCHO_HELV_BOLD=[278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 58
           precio: v('.col-precio'), monedaFila: v('.col-monedafila'),
           d1: v('.col-d1'), d2: v('.col-d2'), d3: v('.col-d3'), d4: v('.col-d4'), d5: v('.col-d5'),
           margen: v('.col-margen'), origen: v('.col-origen'),
-          codCliente: v('.col-codcliente'), codCliente2: v('.col-codcliente2'),
-          memo: tr.dataset.memo || ''
+          codCliente: v('.col-codcliente'), codCliente2: v('.col-codcliente2'), usuario: v('.col-usuario'),
+          uid: tr.dataset.uid || '', memo: tr.dataset.memo || ''
         };
       });
       return {
-        tipo: "backup_presupuesto",
+        tipo: parteActiva ? 'parte_presupuesto' : 'backup_presupuesto',
         version: 3,
+        pliegoId: pliegoIdActual,
+        parte: parteActiva ? parteActiva.parte : undefined,
         fechaBackup: new Date().toISOString(),
         metadata: {
           nroCliente: document.getElementById('metaNroCliente').value,
@@ -2371,6 +2607,9 @@ const ANCHO_HELV_BOLD=[278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 58
 
       document.getElementById('tbodyPresupuesto').innerHTML = '';
       backup.items.forEach(item => agregarFila(item));
+      pliegoIdActual = backup.pliegoId || null;
+      parteActiva = backup.tipo === 'parte_presupuesto' ? { pliegoId: backup.pliegoId, parte: String(backup.parte) } : null;
+      aplicarModoParte();
       recalcularPresupuestoCompleto();
     }
 
@@ -2380,7 +2619,9 @@ const ANCHO_HELV_BOLD=[278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 58
       const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
       link.href = url;
-      link.setAttribute("download", nombreBaseArchivo() + '.json');
+      link.setAttribute("download", parteActiva
+        ? 'pliego_' + parteActiva.pliegoId + '_usuario_' + parteActiva.parte + '.json'
+        : nombreBaseArchivo() + '.json');
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -2457,6 +2698,7 @@ const ANCHO_HELV_BOLD=[278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 58
     function limpiarTodo() {
       if (hayDatos() && !confirm('¿Borrar todos los ítems del presupuesto? Esta acción no se puede deshacer.')) return;
       document.getElementById('tbodyPresupuesto').innerHTML = '';
+      pliegoIdActual = null;
       document.querySelectorAll('#filaFiltros input').forEach(input => input.value = '');
       ultimoReemplazoGlobal = null;
       document.getElementById('btnDeshacerGlobal').classList.add('hidden');
